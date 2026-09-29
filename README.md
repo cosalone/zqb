@@ -10,6 +10,7 @@
 |---|---|
 | `zqb.js` | 主脚本：拦截 3 个考勤接口，替换坐标/海拔/地点等字段 |
 | `zqb-settings.js` | 选点脚本：拦截 `zqb-settings/save`，保存手动选点 |
+| `index.html` | 在线选点页面（GitHub Pages 托管，wloc 同款地图选点） |
 | `zqb.module` | 小火箭模块：2 条脚本规则 + MITM 域名（已指向本仓库直链） |
 
 ---
@@ -45,11 +46,29 @@ https://raw.githubusercontent.com/cosalone/zqb-wloc/main/zqb.module
 >
 > 注意：jsDelivr 有缓存，改文件后可能延迟数小时才更新；改完配置急着生效就直接用 raw 地址。
 
-### 4. 小火箭导入模块
+### 4. 开启在线选点页面（GitHub Pages）
+
+把 `index.html` 上传到仓库根目录（与两个 js 文件同级），然后：
+
+1. 打开仓库的 Pages 设置页（直达）：**https://github.com/cosalone/zqb-wloc/settings/pages**
+2. **Build and deployment → Source** 选 `Deploy from a branch`
+3. **Branch** 下拉框选 `main`，目录选 `/ (root)`，点 **Save**
+4. 等 1~2 分钟，页面顶部出现绿框 "Your site is live" 即开通成功
+
+开通后的页面地址：
+
+```
+https://cosalone.github.io/zqb-wloc/
+```
+
+> - 页面必须在小火箭代理开启的状态下用 Safari 访问（它要连本机拦截接口），建议 Safari 分享 → 添加到主屏幕
+> - 仓库需保持公开状态（GitHub Pages 免费版要求）
+
+### 5. 小火箭导入模块
 
 小火箭 → 「模块」入口（一般在 设置 → 模块，不同版本入口略有差异）→ 添加 → 粘贴上面的模块直链 → 下载并启用。
 
-### 5. 开启 HTTPS 解密（MITM）
+### 6. 开启 HTTPS 解密（MITM）
 
 考勤接口是 HTTPS，必须解密才能改包（一次性设置）：
 
@@ -67,16 +86,30 @@ https://raw.githubusercontent.com/cosalone/zqb-wloc/main/zqb.module
 
 ### 手动选点
 
-在 Safari（开着代理）访问以下地址，建议加到主屏幕或收藏夹：
+**方式一：在线选点页面（推荐，wloc 同款体验）**
 
-| 操作 | 地址 |
-|---|---|
-| 保存选点 | `https://proj-kq.ruioutech.com/zqb-settings/save?lon=经度&lat=纬度&loc=地点名称&alt=海拔` |
-| 查询当前 | `https://proj-kq.ruioutech.com/zqb-settings/save?action=query` |
-| 清除选点（恢复默认） | `https://proj-kq.ruioutech.com/zqb-settings/save?action=clear` |
-| 重置抖动 | `https://proj-kq.ruioutech.com/zqb-settings/save?action=jitter` |
+开启 GitHub Pages 后（见部署第 4 步），在小火箭代理开启的状态下用 Safari 打开，建议添加到主屏幕：
 
-- `lon` / `lat` 必填；`loc` 建议填（打卡记录里的地点名称）；`alt` 选填（默认 30.83 米）
+**[https://cosalone.github.io/zqb-wloc/](https://cosalone.github.io/zqb-wloc/)**
+
+- 地图点击选点 → 填地点名称 → 「储存到设备」
+- 支持粘贴高德/苹果地图分享链接直接定位、收藏常用位置（本机保存）
+- 「查询当前生效」会在地图上标出当前实际生效的坐标（蓝点）
+- 页面里也带「清除选点」「重置抖动」按钮
+
+**方式二：直链（在 Safari 中直接点击即可执行）**
+
+- [查询当前生效坐标](https://proj-kq.ruioutech.com/zqb-settings/save?action=query)
+- [清除选点（恢复默认南莲路53号）](https://proj-kq.ruioutech.com/zqb-settings/save?action=clear)
+- [重置抖动（立即换一组偏移）](https://proj-kq.ruioutech.com/zqb-settings/save?action=jitter)
+- [保存南莲路53号（示例，可直接点击）](https://proj-kq.ruioutech.com/zqb-settings/save?lon=115.91757960765315&lat=28.622877368112636&loc=江西省南昌市青云谱区三家店街道南莲路53号附近)
+
+保存其他位置的格式（`lon` / `lat` 必填；`loc` 建议填，是打卡记录里的地点名称；`alt` 选填，默认 30.83 米）：
+
+```
+https://proj-kq.ruioutech.com/zqb-settings/save?lon=经度&lat=纬度&loc=地点名称&alt=海拔
+```
+
 - 坐标从高德/苹果地图的分享链接里取，坐标系与 App 上报一致，直接填入即可
 - 这些请求被本地脚本拦截，**不会真的发到考勤服务器**；操作成功有系统通知
 
@@ -100,7 +133,7 @@ https://raw.githubusercontent.com/cosalone/zqb-wloc/main/zqb.module
 ## 四、常见问题
 
 **Q：打卡没被替换？**
-按顺序检查：状态栏有 VPN 图标 → 模块已启用 → HTTPS 解密已开启且证书已在 iOS 里信任（部署第 5 步）→ Safari 访问 `?action=query` 能否返回 JSON。
+按顺序检查：状态栏有 VPN 图标 → 模块已启用 → HTTPS 解密已开启且证书已在 iOS 里信任（部署第 6 步）→ Safari 访问 `?action=query` 能否返回 JSON。
 
 **Q：想恢复真实定位打卡？**
 小火箭里关闭该模块（或断开代理）即可，iOS 无需重启。
