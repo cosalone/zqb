@@ -9,10 +9,15 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; font-family: -apple-system, "PingFang SC", sans-serif; }
   #map { height: 55vh; }
+  #baseSel { position: absolute; top: 10px; right: 10px; z-index: 1000; display: flex; gap: 4px; }
+  #baseSel button { flex: 0 0 auto; padding: 5px 8px; font-size: 11px; background: rgba(255,255,255,.92); color: #333; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+  #baseSel button.on { background: #007aff; color: #fff; }
   .panel { padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); background: #f7f7f7; }
   .picked { font-size: 13px; color: #333; margin-bottom: 8px; word-break: break-all; }
   .picked b { color: #007aff; }
   input[type=text] { width: 100%; padding: 9px 10px; border: 1px solid #d9d9d9; border-radius: 8px; font-size: 14px; margin-bottom: 8px; background: #fff; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .row input { flex: 1; margin-bottom: 0; }
   .btns { display: flex; gap: 8px; margin-bottom: 8px; }
   button { flex: 1; padding: 10px 6px; border: none; border-radius: 8px; font-size: 14px; background: #007aff; color: #fff; }
   button.ghost { background: #e8f0ff; color: #007aff; }
@@ -24,18 +29,29 @@
   .fav-item { display: flex; align-items: center; gap: 6px; padding: 8px; background: #fff; border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
   .fav-item .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hint { font-size: 11px; color: #999; margin-top: 8px; line-height: 1.5; }
+  .sect { font-size: 12px; color: #666; margin: 10px 0 6px; }
 </style>
 </head>
 <body>
 <div id="map"></div>
+<div id="baseSel">
+  <button data-b="street" class="on">街道</button>
+  <button data-b="sat">卫星</button>
+  <button data-b="voyager">浅图</button>
+  <button data-b="osm">OSM</button>
+</div>
 <div class="panel">
-  <div class="picked" id="picked">点击地图选择位置，或在下方粘贴坐标</div>
+  <div class="picked" id="picked">点击地图选择位置，或搜索/粘贴链接</div>
+  <div class="row">
+    <input type="text" id="search" placeholder="搜索地名，如：南莲路53号">
+    <button id="btnSearch" class="ghost mini">搜索</button>
+  </div>
   <input type="text" id="locName" placeholder="地点名称（建议填写，如：南莲路53号）">
   <div class="btns">
     <button id="btnSave">储存到设备</button>
     <button id="btnQuery" class="ghost">查询当前生效</button>
   </div>
-  <input type="text" id="paste" placeholder="粘贴高德/苹果地图链接，或 纬度,经度">
+  <input type="text" id="paste" placeholder="粘贴高德/苹果链接、短链，或 纬度,经度">
   <div class="btns">
     <button id="btnParse" class="ghost">解析定位</button>
     <button id="btnDefault" class="ghost">用默认位置</button>
@@ -45,43 +61,121 @@
     <button id="btnClear" class="warn">清除选点(恢复默认)</button>
   </div>
   <div id="status"></div>
+  <div class="sect">链接解析 Worker（解析高德短链用，部署见 README，可留空）</div>
+  <div class="row">
+    <input type="text" id="workerUrl" placeholder="https://你的worker地址.workers.dev">
+    <button id="btnWorker" class="ghost mini">保存</button>
+  </div>
   <div class="btns"><button id="btnFav" class="ghost">收藏当前点</button></div>
   <div id="favList"></div>
-  <div class="hint">需在小火箭代理开启、CA 证书已信任的 Safari 中使用；地图与链接坐标均为 GCJ-02，与考勤 App 上报坐标系一致，直接使用无需换算。地图加载失败不影响储存/查询等按钮。</div>
+  <div class="hint">地图源可切换：高德（GCJ-02，与考勤 App 一致）／浅图与 OSM（WGS-84，选点已自动换算成 GCJ-02，无需手动处理）。高德短链需配置解析 Worker。需在小火箭代理开启、CA 证书已信任的 Safari 中使用；地图加载失败不影响储存/查询等按钮。</div>
 </div>
 <script src="https://cdn.staticfile.org/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 var SAVE_URL = "https://proj-kq.ruioutech.com/zqb-settings/save";
 var DEF_LAT = 28.622877368112636, DEF_LON = 115.91757960765315;
 
-// picked 是选点的唯一数据源; 地图/marker 只是可视化, 加载失败不影响功能
+// picked / 收藏 / 生效坐标 全部以 GCJ-02 存储（与考勤 App 上报一致）
+// WGS 底图(OSM/Carto) 仅作显示，点选与标记时自动换算
 var map = null, marker = null, effMarker = null, picked = null;
+var curBase = "street", baseLayer = null, satRoad = null;
+
+// ---------- 坐标系转换 WGS-84 <-> GCJ-02（国标通用公式） ----------
+function outOfChina(lat, lng) { return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271; }
+function tLat(x, y) {
+  var r = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  r += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
+  r += (20 * Math.sin(y * Math.PI) + 40 * Math.sin(y / 3 * Math.PI)) * 2 / 3;
+  r += (160 * Math.sin(y / 12 * Math.PI) + 320 * Math.sin(y * Math.PI / 30)) * 2 / 3;
+  return r;
+}
+function tLng(x, y) {
+  var r = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  r += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
+  r += (20 * Math.sin(x * Math.PI) + 40 * Math.sin(x / 3 * Math.PI)) * 2 / 3;
+  r += (150 * Math.sin(x / 12 * Math.PI) + 300 * Math.sin(x / 30 * Math.PI)) * 2 / 3;
+  return r;
+}
+function wgs2gcj(lat, lng) {
+  if (outOfChina(lat, lng)) return { lat: lat, lng: lng };
+  var a = 6378245.0, ee = 0.00669342162296594323;
+  var dLat = tLat(lng - 105, lat - 35), dLng = tLng(lng - 105, lat - 35);
+  var radLat = lat / 180 * Math.PI, magic = 1 - ee * Math.sin(radLat) * Math.sin(radLat);
+  var sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180) / ((a * (1 - ee)) / (magic * sqrtMagic) * Math.PI);
+  dLng = (dLng * 180) / (a / sqrtMagic * Math.cos(radLat) * Math.PI);
+  return { lat: lat + dLat, lng: lng + dLng };
+}
+function gcj2wgs(lat, lng) { // 一次近似逆推，显示用途足够（误差<1米）
+  var g = wgs2gcj(lat, lng);
+  return { lat: lat * 2 - g.lat, lng: lng * 2 - g.lng };
+}
+
+// ---------- 底图（wprd 矢量与 webst 卫星均已验证可用；webrd 老源已失效勿用） ----------
+var BASES = {
+  street: { cs: "gcj", url: "https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=8", sub: "1234", max: 18 },
+  sat: { cs: "gcj", url: "https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}", sub: "1234", max: 18 },
+  voyager: { cs: "wgs", url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", sub: "abcd", max: 19 },
+  osm: { cs: "wgs", url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", sub: "abc", max: 19 }
+};
+// GCJ -> 当前底图显示坐标
+function dPt(lat, lng) { return BASES[curBase].cs === "wgs" ? gcj2wgs(lat, lng) : { lat: lat, lng: lng }; }
+
+function setBase(key) {
+  if (!map) return;
+  if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
+  if (satRoad) { map.removeLayer(satRoad); satRoad = null; }
+  curBase = key;
+  var b = BASES[key];
+  baseLayer = L.tileLayer(b.url, { subdomains: b.sub, maxZoom: b.max, attribution: key });
+  var tileErr = 0;
+  baseLayer.on("tileerror", function () {
+    if (++tileErr === 3) status("当前地图源加载失败，可切换右上角其他地图源；储存/查询不受影响", "err");
+  });
+  baseLayer.addTo(map);
+  if (key === "sat") { // 卫星图上叠加路网标注层
+    satRoad = L.tileLayer("https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}", { subdomains: "1234", maxZoom: 18 }).addTo(map);
+  }
+  var btns = document.querySelectorAll("#baseSel button");
+  for (var i = 0; i < btns.length; i++) btns[i].className = btns[i].getAttribute("data-b") === key ? "on" : "";
+  refreshMarkers();
+}
 
 function initMap() {
   if (typeof L === "undefined") {
     document.getElementById("map").innerHTML =
-      '<div style="padding:20px;color:#e8433f;font-size:13px;">地图库(Leaflet)加载失败，可能是网络问题；<br>下方粘贴坐标、储存、查询等功能仍可正常使用。</div>';
+      '<div style="padding:20px;color:#e8433f;font-size:13px;">地图库(Leaflet)加载失败，可能是网络问题；<br>搜索、粘贴坐标、储存、查询等功能仍可正常使用。</div>';
     return;
   }
-  // 高德瓦片为 GCJ-02 坐标系，与考勤 App 上报一致，点击取到的坐标直接可用
-  map = L.map("map").setView([DEF_LAT, DEF_LON], 16);
-  var tl = L.tileLayer("https://webrd{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}", {
-    subdomains: ["1", "2", "3", "4"], maxZoom: 18, attribution: "高德地图"
-  }).addTo(map);
-  var tileErr = 0;
-  tl.on("tileerror", function () {
-    if (++tileErr === 3) status("地图瓦片加载失败（网络原因），粘贴坐标/储存/查询仍可用", "err");
+  var d = dPt(DEF_LAT, DEF_LON);
+  map = L.map("map").setView([d.lat, d.lng], 16);
+  map.on("click", function (e) {
+    var p = BASES[curBase].cs === "wgs" ? wgs2gcj(e.latlng.lat, e.latlng.lng) : { lat: e.latlng.lat, lng: e.latlng.lng };
+    setPicked(p.lat, p.lng, false);
   });
-  map.on("click", function (e) { setPicked(e.latlng.lat, e.latlng.lng, false); });
+  setBase("street");
+}
+
+function refreshMarkers() {
+  if (!map) return;
+  if (marker && picked) {
+    var d = dPt(picked.lat, picked.lng);
+    marker.setLatLng([d.lat, d.lng]);
+  }
+  if (effMarker && effMarker._zqb_gcj) {
+    var g = effMarker._zqb_gcj, d2 = dPt(g.lat, g.lng);
+    effMarker.setLatLng([d2.lat, d2.lng]);
+  }
 }
 
 function setPicked(lat, lng, fly) {
   picked = { lat: lat, lng: lng };
   document.getElementById("picked").innerHTML = "已选中：<b>" + lat.toFixed(10) + ", " + lng.toFixed(10) + "</b>";
   if (map) {
+    var d = dPt(lat, lng);
     if (marker) marker.remove();
-    marker = L.marker([lat, lng]).addTo(map);
-    if (fly) map.flyTo([lat, lng], Math.max(map.getZoom(), 16));
+    marker = L.marker([d.lat, d.lng]).addTo(map);
+    if (fly) map.flyTo([d.lat, d.lng], Math.max(map.getZoom(), 16));
   }
 }
 
@@ -103,7 +197,7 @@ function api(qs) {
 }
 
 document.getElementById("btnSave").onclick = function () {
-  if (!picked) { status("请先在地图上选点，或粘贴坐标后点「解析定位」", "err"); return; }
+  if (!picked) { status("请先在地图上选点、搜索或粘贴链接", "err"); return; }
   var name = document.getElementById("locName").value.trim();
   var qs = "lon=" + picked.lng + "&lat=" + picked.lat + (name ? "&loc=" + encodeURIComponent(name) : "");
   api(qs).then(function (j) {
@@ -115,9 +209,11 @@ document.getElementById("btnSave").onclick = function () {
 function showEffective(lat, lng, label) {
   if (!map) { status(label, "ok"); return; }
   if (effMarker) effMarker.remove();
-  effMarker = L.circleMarker([lat, lng], { radius: 10, color: "#007aff", fillColor: "#007aff", fillOpacity: 0.4 })
+  var d = dPt(lat, lng);
+  effMarker = L.circleMarker([d.lat, d.lng], { radius: 10, color: "#007aff", fillColor: "#007aff", fillOpacity: 0.4 })
     .addTo(map).bindPopup(label);
-  map.flyTo([lat, lng], Math.max(map.getZoom(), 16));
+  effMarker._zqb_gcj = { lat: lat, lng: lng };
+  map.flyTo([d.lat, d.lng], Math.max(map.getZoom(), 16));
 }
 
 document.getElementById("btnQuery").onclick = function () {
@@ -144,14 +240,51 @@ document.getElementById("btnDefault").onclick = function () {
   setPicked(DEF_LAT, DEF_LON, true);
 };
 
-// 粘贴解析：高德 position=经度,纬度 / 苹果 coordinate=纬度,经度 / 裸坐标对（自动判断顺序）
-document.getElementById("btnParse").onclick = function () {
+// ---------- 地名搜索（nominatim 返回 WGS-84，自动转 GCJ-02） ----------
+function searchPlace() {
+  var q = document.getElementById("search").value.trim();
+  if (!q) { status("请输入地名", "err"); return; }
+  status("搜索中…");
+  fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=zh-CN&q=" + encodeURIComponent(q))
+    .then(function (r) { return r.json(); })
+    .then(function (rs) {
+      if (!rs || !rs.length) { status("未找到：" + q, "err"); return; }
+      var g = wgs2gcj(parseFloat(rs[0].lat), parseFloat(rs[0].lon));
+      setPicked(g.lat, g.lng, true);
+      status("已定位（WGS→GCJ 已换算）：" + (rs[0].display_name || "").slice(0, 40), "ok");
+    })
+    .catch(function () { status("搜索失败（网络）", "err"); });
+}
+document.getElementById("btnSearch").onclick = searchPlace;
+document.getElementById("search").addEventListener("keydown", function (e) { if (e.key === "Enter") searchPlace(); });
+
+// ---------- Worker 解析（高德短链 surl.amap.com 的坐标藏在 302 跳转里） ----------
+function getWorker() { try { return (localStorage.getItem("zqb_worker") || "").trim(); } catch (e) { return ""; } }
+function parseViaWorker(u) {
+  var w = getWorker();
+  if (!w) { status("高德短链需解析 Worker：在下方填入你部署的 Worker 地址（部署步骤见 README）", "err"); return; }
+  status("正在通过 Worker 解析短链…");
+  fetch(w.replace(/\/+$/, "") + "/parse?u=" + encodeURIComponent(u))
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (j.error) { status("❌ Worker：" + j.error, "err"); return; }
+      setPicked(j.lat, j.lon, true);
+      status("已解析短链（GCJ-02）", "ok");
+    })
+    .catch(function () { status("❌ Worker 请求失败（地址错误或网络问题）", "err"); });
+}
+
+// ---------- 粘贴解析：本地正则优先，未命中且为链接时走 Worker ----------
+function parseInput() {
   var s = document.getElementById("paste").value.trim();
   if (!s) { status("请先粘贴内容", "err"); return; }
-  var m = s.match(/position=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
-  if (m) { setPicked(parseFloat(m[2]), parseFloat(m[1]), true); status("已按高德链接定位（position=经度,纬度）", "ok"); return; }
-  m = s.match(/coordinate=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
-  if (m) { setPicked(parseFloat(m[1]), parseFloat(m[2]), true); status("已按苹果地图链接定位（coordinate=纬度,经度）", "ok"); return; }
+  // 高德: position=经度,纬度（含 uri.amap.com/marker 完整链）
+  var m = s.match(/[?&]position=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  if (m) { setPicked(parseFloat(m[2]), parseFloat(m[1]), true); status("已按高德链接定位（GCJ-02）", "ok"); return; }
+  // 苹果: ll= 或 coordinate=纬度,经度
+  m = s.match(/[?&](?:ll|coordinate)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  if (m) { setPicked(parseFloat(m[1]), parseFloat(m[2]), true); status("已按苹果地图链接定位（GCJ-02）", "ok"); return; }
+  // 裸坐标对（自动判断纬经顺序，按中国范围）
   m = s.match(/(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)/);
   if (m) {
     var a = parseFloat(m[1]), b = parseFloat(m[2]);
@@ -162,10 +295,38 @@ document.getElementById("btnParse").onclick = function () {
     status("已定位，请确认坐标是否正确", "ok");
     return;
   }
-  status("未识别出坐标（短链需先在浏览器打开，再复制跳转后的链接）", "err");
-};
+  // 其余链接（高德短链等）→ Worker 跟跳转解析
+  if (/https?:\/\//i.test(s)) { parseViaWorker(s); return; }
+  status("未识别出坐标（短链需配置解析 Worker，见 README）", "err");
+}
+document.getElementById("btnParse").onclick = parseInput;
+document.getElementById("paste").addEventListener("keydown", function (e) { if (e.key === "Enter") parseInput(); });
 
-// 收藏列表：存浏览器 localStorage（仅本页便捷操作）；生效坐标保存在小火箭持久化存储里
+// 全局粘贴监听：复制链接后切回本页自动填入并解析（参考 wloc 交互）
+document.addEventListener("paste", function (e) {
+  var text = (e.clipboardData || window.clipboardData).getData("text");
+  if (!text) return;
+  if (!(/https?:\/\//i.test(text) || /\d+\.\d+\s*[,，]/.test(text))) return;
+  var input = document.getElementById("paste");
+  if (e.target !== input) input.value = text;
+  setTimeout(parseInput, 200);
+});
+
+// Worker 地址配置
+document.getElementById("btnWorker").onclick = function () {
+  var v = document.getElementById("workerUrl").value.trim().replace(/\/+$/, "");
+  if (v && !/^https?:\/\//i.test(v)) { status("Worker 地址需以 http(s):// 开头", "err"); return; }
+  try { localStorage.setItem("zqb_worker", v); } catch (e) {}
+  status(v ? "✅ Worker 地址已保存" : "已清空 Worker 地址", "ok");
+};
+document.getElementById("workerUrl").value = getWorker();
+
+// 底图切换
+document.querySelectorAll("#baseSel button").forEach(function (b) {
+  b.onclick = function () { setBase(b.getAttribute("data-b")); };
+});
+
+// ---------- 收藏列表：存浏览器 localStorage；生效坐标存小火箭持久化 ----------
 var FAV_KEY = "zqb_favs";
 function getFavs() { try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch (e) { return []; } }
 function setFavs(f) { localStorage.setItem(FAV_KEY, JSON.stringify(f)); renderFavs(); }
