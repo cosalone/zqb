@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>智勤选点</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.staticfile.org/leaflet/1.9.4/leaflet.min.css">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; font-family: -apple-system, "PingFang SC", sans-serif; }
@@ -29,7 +29,7 @@
 <body>
 <div id="map"></div>
 <div class="panel">
-  <div class="picked" id="picked">点击地图选择位置</div>
+  <div class="picked" id="picked">点击地图选择位置，或在下方粘贴坐标</div>
   <input type="text" id="locName" placeholder="地点名称（建议填写，如：南莲路53号）">
   <div class="btns">
     <button id="btnSave">储存到设备</button>
@@ -38,7 +38,7 @@
   <input type="text" id="paste" placeholder="粘贴高德/苹果地图链接，或 纬度,经度">
   <div class="btns">
     <button id="btnParse" class="ghost">解析定位</button>
-    <button id="btnDefault" class="ghost">回到默认位置</button>
+    <button id="btnDefault" class="ghost">用默认位置</button>
   </div>
   <div class="btns">
     <button id="btnJitter" class="ghost">重置抖动</button>
@@ -47,28 +47,43 @@
   <div id="status"></div>
   <div class="btns"><button id="btnFav" class="ghost">收藏当前点</button></div>
   <div id="favList"></div>
-  <div class="hint">需在小火箭代理开启、CA 证书已信任的 Safari 中使用；地图与链接坐标均为 GCJ-02，与考勤 App 上报坐标系一致，直接使用无需换算。</div>
+  <div class="hint">需在小火箭代理开启、CA 证书已信任的 Safari 中使用；地图与链接坐标均为 GCJ-02，与考勤 App 上报坐标系一致，直接使用无需换算。地图加载失败不影响储存/查询等按钮。</div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<script src="https://cdn.staticfile.org/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 var SAVE_URL = "https://proj-kq.ruioutech.com/zqb-settings/save";
 var DEF_LAT = 28.622877368112636, DEF_LON = 115.91757960765315;
 
-// 高德瓦片为 GCJ-02 坐标系，与考勤 App 上报一致，点击取到的坐标直接可用
-var map = L.map("map").setView([DEF_LAT, DEF_LON], 16);
-L.tileLayer("https://webrd{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}", {
-  subdomains: ["1", "2", "3", "4"], maxZoom: 18, attribution: "高德地图"
-}).addTo(map);
+// picked 是选点的唯一数据源; 地图/marker 只是可视化, 加载失败不影响功能
+var map = null, marker = null, effMarker = null, picked = null;
 
-var marker = null, effMarker = null;
-
-function setMarker(lat, lng, fly) {
-  if (marker) marker.remove();
-  marker = L.marker([lat, lng]).addTo(map);
-  if (fly) map.flyTo([lat, lng], Math.max(map.getZoom(), 16));
-  document.getElementById("picked").innerHTML = "已选中：<b>" + lat.toFixed(10) + ", " + lng.toFixed(10) + "</b>";
+function initMap() {
+  if (typeof L === "undefined") {
+    document.getElementById("map").innerHTML =
+      '<div style="padding:20px;color:#e8433f;font-size:13px;">地图库(Leaflet)加载失败，可能是网络问题；<br>下方粘贴坐标、储存、查询等功能仍可正常使用。</div>';
+    return;
+  }
+  // 高德瓦片为 GCJ-02 坐标系，与考勤 App 上报一致，点击取到的坐标直接可用
+  map = L.map("map").setView([DEF_LAT, DEF_LON], 16);
+  var tl = L.tileLayer("https://webrd{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}", {
+    subdomains: ["1", "2", "3", "4"], maxZoom: 18, attribution: "高德地图"
+  }).addTo(map);
+  var tileErr = 0;
+  tl.on("tileerror", function () {
+    if (++tileErr === 3) status("地图瓦片加载失败（网络原因），粘贴坐标/储存/查询仍可用", "err");
+  });
+  map.on("click", function (e) { setPicked(e.latlng.lat, e.latlng.lng, false); });
 }
-map.on("click", function (e) { setMarker(e.latlng.lat, e.latlng.lng, false); });
+
+function setPicked(lat, lng, fly) {
+  picked = { lat: lat, lng: lng };
+  document.getElementById("picked").innerHTML = "已选中：<b>" + lat.toFixed(10) + ", " + lng.toFixed(10) + "</b>";
+  if (map) {
+    if (marker) marker.remove();
+    marker = L.marker([lat, lng]).addTo(map);
+    if (fly) map.flyTo([lat, lng], Math.max(map.getZoom(), 16));
+  }
+}
 
 function status(msg, cls) {
   var el = document.getElementById("status");
@@ -88,10 +103,9 @@ function api(qs) {
 }
 
 document.getElementById("btnSave").onclick = function () {
-  if (!marker) { status("请先点击地图选择位置", "err"); return; }
-  var p = marker.getLatLng();
+  if (!picked) { status("请先在地图上选点，或粘贴坐标后点「解析定位」", "err"); return; }
   var name = document.getElementById("locName").value.trim();
-  var qs = "lon=" + p.lng + "&lat=" + p.lat + (name ? "&loc=" + encodeURIComponent(name) : "");
+  var qs = "lon=" + picked.lng + "&lat=" + picked.lat + (name ? "&loc=" + encodeURIComponent(name) : "");
   api(qs).then(function (j) {
     if (j.success) status("✅ 已保存，下次打卡生效", "ok");
     else status("❌ " + (j.error || "保存失败"), "err");
@@ -99,6 +113,7 @@ document.getElementById("btnSave").onclick = function () {
 };
 
 function showEffective(lat, lng, label) {
+  if (!map) { status(label, "ok"); return; }
   if (effMarker) effMarker.remove();
   effMarker = L.circleMarker([lat, lng], { radius: 10, color: "#007aff", fillColor: "#007aff", fillOpacity: 0.4 })
     .addTo(map).bindPopup(label);
@@ -109,7 +124,7 @@ document.getElementById("btnQuery").onclick = function () {
   api("action=query").then(function (j) {
     if (j.settings) {
       showEffective(j.settings.latitude, j.settings.longitude, "当前生效：手动选点 " + (j.settings.location || ""));
-      status("当前模式：手动选点", "ok");
+      status("当前模式：手动选点 " + j.settings.latitude + ", " + j.settings.longitude, "ok");
     } else {
       showEffective(DEF_LAT, DEF_LON, "当前生效：默认配置（南莲路53号）");
       status("当前模式：默认配置（南莲路53号）", "ok");
@@ -126,8 +141,7 @@ document.getElementById("btnJitter").onclick = function () {
     .catch(function (e) { status("❌ " + e.message, "err"); });
 };
 document.getElementById("btnDefault").onclick = function () {
-  map.flyTo([DEF_LAT, DEF_LON], 16);
-  setMarker(DEF_LAT, DEF_LON, false);
+  setPicked(DEF_LAT, DEF_LON, true);
 };
 
 // 粘贴解析：高德 position=经度,纬度 / 苹果 coordinate=纬度,经度 / 裸坐标对（自动判断顺序）
@@ -135,17 +149,17 @@ document.getElementById("btnParse").onclick = function () {
   var s = document.getElementById("paste").value.trim();
   if (!s) { status("请先粘贴内容", "err"); return; }
   var m = s.match(/position=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
-  if (m) { setMarker(parseFloat(m[2]), parseFloat(m[1]), true); status("已按高德链接定位（position=经度,纬度）", "ok"); return; }
+  if (m) { setPicked(parseFloat(m[2]), parseFloat(m[1]), true); status("已按高德链接定位（position=经度,纬度）", "ok"); return; }
   m = s.match(/coordinate=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
-  if (m) { setMarker(parseFloat(m[1]), parseFloat(m[2]), true); status("已按苹果地图链接定位（coordinate=纬度,经度）", "ok"); return; }
+  if (m) { setPicked(parseFloat(m[1]), parseFloat(m[2]), true); status("已按苹果地图链接定位（coordinate=纬度,经度）", "ok"); return; }
   m = s.match(/(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)/);
   if (m) {
     var a = parseFloat(m[1]), b = parseFloat(m[2]);
     var isLat = function (v) { return v >= 18 && v <= 54; };
     var isLng = function (v) { return v >= 73 && v <= 136; };
     if (isLng(a) && isLat(b)) { var t = a; a = b; b = t; } // 输入是 经度,纬度 → 交换
-    setMarker(a, b, true);
-    status("已定位，请在地图上确认位置是否正确", "ok");
+    setPicked(a, b, true);
+    status("已定位，请确认坐标是否正确", "ok");
     return;
   }
   status("未识别出坐标（短链需先在浏览器打开，再复制跳转后的链接）", "err");
@@ -166,7 +180,7 @@ function renderFavs() {
     nm.textContent = (f.name || "未命名") + "  " + f.lat.toFixed(5) + "," + f.lng.toFixed(5);
     var go = document.createElement("button");
     go.className = "mini ghost"; go.textContent = "定位";
-    go.onclick = function () { setMarker(f.lat, f.lng, true); };
+    go.onclick = function () { setPicked(f.lat, f.lng, true); };
     var sv = document.createElement("button");
     sv.className = "mini"; sv.textContent = "储存";
     sv.onclick = function () {
@@ -183,14 +197,14 @@ function renderFavs() {
   });
 }
 document.getElementById("btnFav").onclick = function () {
-  if (!marker) { status("请先选择位置", "err"); return; }
-  var p = marker.getLatLng();
+  if (!picked) { status("请先选择位置", "err"); return; }
   var name = document.getElementById("locName").value.trim() || ("位置" + (getFavs().length + 1));
   var fs = getFavs();
-  fs.push({ name: name, lat: p.lat, lng: p.lng });
+  fs.push({ name: name, lat: picked.lat, lng: picked.lng });
   setFavs(fs);
   status("已收藏「" + name + "」", "ok");
 };
+initMap();
 renderFavs();
 </script>
 </body>
