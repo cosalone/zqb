@@ -68,7 +68,7 @@
   </div>
   <div class="btns"><button id="btnFav" class="ghost">收藏当前点</button></div>
   <div id="favList"></div>
-  <div class="hint">地图源可切换：高德（GCJ-02，与考勤 App 一致）／浅图与 OSM（WGS-84，选点已自动换算成 GCJ-02，无需手动处理）。高德短链需配置解析 Worker。需在小火箭代理开启、CA 证书已信任的 Safari 中使用；地图加载失败不影响储存/查询等按钮。</div>
+  <div class="hint">街道图为高德 GCJ-02，卫星/浅图/OSM 为 WGS-84——页面已自动换算，任何底图上点选得到的都是与考勤 App 一致的 GCJ-02 坐标，直接储存即可。高德短链需配置解析 Worker。需在小火箭代理开启、CA 证书已信任的 Safari 中使用；地图加载失败不影响储存/查询等按钮。</div>
 </div>
 <script src="https://cdn.staticfile.org/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
@@ -78,7 +78,7 @@ var DEF_LAT = 28.622877368112636, DEF_LON = 115.91757960765315;
 // picked / 收藏 / 生效坐标 全部以 GCJ-02 存储（与考勤 App 上报一致）
 // WGS 底图(OSM/Carto) 仅作显示，点选与标记时自动换算
 var map = null, marker = null, effMarker = null, picked = null;
-var curBase = "street", baseLayer = null, satRoad = null;
+var curBase = "street", baseLayer = null;
 
 // ---------- 坐标系转换 WGS-84 <-> GCJ-02（国标通用公式） ----------
 function outOfChina(lat, lng) { return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271; }
@@ -111,10 +111,15 @@ function gcj2wgs(lat, lng) { // 一次近似逆推，显示用途足够（误差
   return { lat: lat * 2 - g.lat, lng: lng * 2 - g.lng };
 }
 
-// ---------- 底图（wprd 矢量与 webst 卫星均已验证可用；webrd 老源已失效勿用） ----------
+// ---------- 底图 ----------
+// 实测(2026-10, 南昌瓦片地物配准 + 用户数据数值验证):
+//   style=7 矢量 = GCJ-02；style=6 卫星影像 = WGS-84（高德影像未加偏，经典坑，
+//   两者相差约 纬+0.0034°/经-0.0048°，在 z16 约 200px）；style=8 路网标注 = GCJ-02，
+//   故卫星模式【不能】叠 style=8（会错位约 200px，wloc 也不叠）。
+//   数据层内部统一 GCJ-02，切到 WGS 底图时由 dPt()/点击回调做渲染层换算。
 var BASES = {
-  street: { cs: "gcj", url: "https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=8", sub: "1234", max: 18 },
-  sat: { cs: "gcj", url: "https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}", sub: "1234", max: 18 },
+  street: { cs: "gcj", url: "https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7", sub: "1234", max: 18 },
+  sat: { cs: "wgs", url: "https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}", sub: "1234", max: 18 },
   voyager: { cs: "wgs", url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", sub: "abcd", max: 19 },
   osm: { cs: "wgs", url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", sub: "abc", max: 19 }
 };
@@ -124,7 +129,6 @@ function dPt(lat, lng) { return BASES[curBase].cs === "wgs" ? gcj2wgs(lat, lng) 
 function setBase(key) {
   if (!map) return;
   if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
-  if (satRoad) { map.removeLayer(satRoad); satRoad = null; }
   curBase = key;
   var b = BASES[key];
   baseLayer = L.tileLayer(b.url, { subdomains: b.sub, maxZoom: b.max, attribution: key });
@@ -133,9 +137,6 @@ function setBase(key) {
     if (++tileErr === 3) status("当前地图源加载失败，可切换右上角其他地图源；储存/查询不受影响", "err");
   });
   baseLayer.addTo(map);
-  if (key === "sat") { // 卫星图上叠加路网标注层
-    satRoad = L.tileLayer("https://webst0{s}.is.autonavi.com/appmaptile?style=8&x={x}&y={y}&z={z}", { subdomains: "1234", maxZoom: 18 }).addTo(map);
-  }
   var btns = document.querySelectorAll("#baseSel button");
   for (var i = 0; i < btns.length; i++) btns[i].className = btns[i].getAttribute("data-b") === key ? "on" : "";
   refreshMarkers();
