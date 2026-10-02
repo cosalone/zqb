@@ -43,7 +43,7 @@
 <div class="panel">
   <div class="picked" id="picked">点击地图选择位置，或搜索/粘贴链接</div>
   <div class="row">
-    <input type="text" id="search" placeholder="搜索地名，如：南莲路53号">
+    <input type="text" id="search" placeholder="搜索地名，如：广州路69号">
     <button id="btnSearch" class="ghost mini">搜索</button>
   </div>
   <input type="text" id="locName" placeholder="地点名称（选点后自动反查，可修改）">
@@ -180,7 +180,7 @@ function setPicked(lat, lng, fly) {
   // 高德拾取器对照值：官方建议用高德网址查坐标（GCJ-02），并列显示便于核对
   var g = wgs2gcj(lat, lng);
   document.getElementById("picked").innerHTML =
-    "已选中（WGS-84）：<b>" + lat.toFixed(10) + ", " + lng.toFixed(10) + "</b><br>" +
+    "已选中（WGS-84）：<b>" + lat + ", " + lng + "</b><br>" +
     "高德对照（GCJ-02）：" + g.lat.toFixed(6) + ", " + g.lng.toFixed(6);
   if (map) {
     var d = dPt(lat, lng);
@@ -224,7 +224,7 @@ document.getElementById("btnSave").onclick = function () {
     status("正在通过坐标反查中文地址…");
     forceAutoName(picked.lat, picked.lng).then(function (s) {
       if (s && (!name || name === autoName)) { nameEl.value = s; autoName = s; name = s; }
-      if (!name && !confirm("未能获取地址且未填写名称：打卡记录将显示默认地址「南莲路53号附近」，与所选坐标不一致。\n确定不填名称、继续保存吗？")) return;
+      if (!name && !confirm("未能获取地址且未填写名称：打卡记录将显示默认地址「广州路69号附近」，与所选坐标不一致。\n确定不填名称、继续保存吗？")) return;
       doSave();
     });
     return;
@@ -248,8 +248,8 @@ document.getElementById("btnQuery").onclick = function () {
       showEffective(j.settings.latitude, j.settings.longitude, "当前生效：手动选点 " + (j.settings.location || ""));
       status("当前模式：手动选点 " + j.settings.latitude + ", " + j.settings.longitude + "（WGS-84）", "ok");
     } else {
-      showEffective(DEF_LAT, DEF_LON, "当前生效：默认配置（南莲路53号）");
-      status("当前模式：默认配置（南莲路53号）", "ok");
+      showEffective(DEF_LAT, DEF_LON, "当前生效：默认配置（广州路69号）");
+      status("当前模式：默认配置（广州路69号）", "ok");
     }
   }).catch(function (e) { status("❌ " + e.message, "err"); });
 };
@@ -284,7 +284,7 @@ document.getElementById("btnSearch").onclick = searchPlace;
 document.getElementById("search").addEventListener("keydown", function (e) { if (e.key === "Enter") searchPlace(); });
 
 // ---------- 逆地理编码：选点后自动获取中文地址，填入地点名称（可手动修改） ----------
-// 默认用 OSM Nominatim（免 Key）；配置高德 Web服务 Key 后改用高德（地址更准、格式与考勤记录一致）
+// 默认用 OSM Nominatim（免 Key）；页面下方填入高德 Web服务 Key 后改用高德（地址更准、格式与考勤记录一致）
 // 高德接口只认 GCJ-02，查询前先 wgs2gcj 转换；Nominatim 直接用 WGS-84
 var autoName = "", lastGeoTs = 0, geoTimer = null;
 function getAmapKey() { try { return (localStorage.getItem("zqb_amapkey") || "").trim(); } catch (e) { return ""; } }
@@ -401,7 +401,7 @@ document.getElementById("btnWorker").onclick = function () {
 };
 document.getElementById("workerUrl").value = getWorker();
 
-// 高德 Key 配置（用于地址反查，可选）
+// 高德 Key 配置（用于地址反查，可选，保存在本机不上传）
 document.getElementById("btnAmapKey").onclick = function () {
   var v = document.getElementById("amapKey").value.trim();
   try { localStorage.setItem("zqb_amapkey", v); } catch (e) {}
