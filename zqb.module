@@ -1,5 +1,5 @@
 #!name=智勤打卡定位
-#!desc=拦截智勤考勤3个接口(isInArea/validateLocation/records/add)替换上报坐标, 含GPS抖动防检测。手动选点: Safari访问 https://proj-kq.ruioutech.com/zqb-settings/save?lon=115.9175&lat=28.6228&loc=地点名称 ; ?action=query 查询 / ?action=clear 恢复默认 / ?action=jitter 重置抖动。默认坐标为南莲路53号, 可编辑 zqb.js 中 DEFAULT_CONFIG。需开启MITM并信任CA证书。
+#!desc=拦截智勤考勤3个接口(isInArea/validateLocation/records/add)替换上报坐标, 含GPS抖动防检测。手动选点: Safari访问 https://proj-kq.ruioutech.com/zqb-settings/save?lon=115.9175&lat=28.6228&loc=地点名称 (坐标须WGS-84; 高德GCJ-02值加&cs=gcj自动转换) ; ?action=query 查询 / ?action=clear 恢复默认 / ?action=jitter 重置抖动。默认坐标为南莲路53号, 可编辑 zqb.js 中 DEFAULT_CONFIG。需开启MITM并信任CA证书。
 #!category=Tools
 [Script]
 智勤打卡 = type=http-request,pattern=^https?:\/\/proj-kq\.ruioutech\.com\/prod-api\/attendance\/(rules\/(isInArea|validateLocation)|records\/add),requires-body=1,timeout=30,script-path=https://raw.githubusercontent.com/cosalone/zqb-wloc/main/zqb.js

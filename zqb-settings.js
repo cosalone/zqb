@@ -6,7 +6,11 @@
  * 用 Safari(走代理)访问以下地址:
  *
  *   保存选点:  https://proj-kq.ruioutech.com/zqb-settings/save?lon=115.9175&lat=28.6228&loc=地点名称&alt=30.8
- *              lon/lat 必填(高德/苹果地图分享链接里的坐标, 直接填入即可, 坐标系与 App 上报一致)
+ *              lon/lat 必填, 须为 WGS-84 坐标(官方说明: 考勤地图采用 WGS84 坐标系)。
+ *              选点页面/解析 Worker 返回的已是 WGS-84, 直接填入即可;
+ *              直接抄高德/苹果分享链接或高德拾取器(lbs.amap.com/tools/picker)的
+ *              GCJ-02 坐标时, 在末尾加 &cs=gcj, 脚本自动转成 WGS-84 再保存
+ *              (不加则按原值保存, 会偏约 600 米)。
  *              loc 选填(打卡地点名称, 建议填写), alt 选填(海拔, 默认用脚本里的 30.83)
  *   查询当前:  https://proj-kq.ruioutech.com/zqb-settings/save?action=query
  *   清除选点:  https://proj-kq.ruioutech.com/zqb-settings/save?action=clear
@@ -35,6 +39,38 @@ function getQueries(url) {
     if (!map.has(dk)) map.set(dk, dv);
   });
   return map;
+}
+
+// ---------- GCJ-02 -> WGS-84 转换(公式与选点页面/Worker 一致) ----------
+// 官方说明: 考勤地图采用 WGS84 坐标系; 高德/苹果地图坐标为 GCJ-02, 保存前需转换
+function outOfChina(lat, lng) { return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271; }
+function tLat(x, y) {
+  var r = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  r += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
+  r += (20 * Math.sin(y * Math.PI) + 40 * Math.sin(y / 3 * Math.PI)) * 2 / 3;
+  r += (160 * Math.sin(y / 12 * Math.PI) + 320 * Math.sin(y * Math.PI / 30)) * 2 / 3;
+  return r;
+}
+function tLng(x, y) {
+  var r = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  r += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
+  r += (20 * Math.sin(x * Math.PI) + 40 * Math.sin(x / 3 * Math.PI)) * 2 / 3;
+  r += (150 * Math.sin(x / 12 * Math.PI) + 300 * Math.sin(x / 30 * Math.PI)) * 2 / 3;
+  return r;
+}
+function wgs2gcj(lat, lng) {
+  if (outOfChina(lat, lng)) return { lat: lat, lng: lng };
+  var a = 6378245.0, ee = 0.00669342162296594323;
+  var dLat = tLat(lng - 105, lat - 35), dLng = tLng(lng - 105, lat - 35);
+  var radLat = lat / 180 * Math.PI, magic = 1 - ee * Math.sin(radLat) * Math.sin(radLat);
+  var sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180) / ((a * (1 - ee)) / (magic * sqrtMagic) * Math.PI);
+  dLng = (dLng * 180) / (a / sqrtMagic * Math.cos(radLat) * Math.PI);
+  return { lat: lat + dLat, lng: lng + dLng };
+}
+function gcj2wgs(lat, lng) { // 一次近似逆推, 误差<1米
+  var g = wgs2gcj(lat, lng);
+  return { lat: lat * 2 - g.lat, lng: lng * 2 - g.lng };
 }
 
 function finish(result) {
@@ -85,6 +121,16 @@ function finish(result) {
       var alt = parseFloat(q.get("alt") || q.get("altitude") || "0");
 
       if (lon && lat) {
+        // cs=gcj: 输入为高德/苹果 GCJ-02 坐标, 转成 WGS-84 再保存
+        // (考勤地图为 WGS-84; 未加 cs 时按原值保存, 调用方须自行保证是 WGS-84)
+        var gcjInput = null;
+        var cs = (q.get("cs") || "").toLowerCase();
+        if (cs === "gcj" || cs === "gcj02" || cs === "amap") {
+          gcjInput = { cs: "GCJ-02", longitude: lon, latitude: lat };
+          var w = gcj2wgs(lat, lon);
+          lon = w.lng;
+          lat = w.lat;
+        }
         var data = {
           longitude: lon,
           latitude: lat,
@@ -97,9 +143,10 @@ function finish(result) {
           // 基准坐标已变, 清空旧抖动缓存, 下次请求基于新坐标重新生成
           $persistentStore.write("", JITTER_KEY);
           result = { success: true, saved: data,
-            message: "已保存, 下次打卡生效; 抖动将基于新坐标自动重新生成" };
+            message: "已保存(WGS-84), 下次打卡生效; 抖动将基于新坐标自动重新生成" };
+          if (gcjInput) result.convertedFrom = gcjInput;
           $notification.post("智勤选点", "选点已保存",
-            lat + ", " + lon + (loc ? " | " + loc : ""));
+            lat + ", " + lon + " (WGS-84)" + (loc ? " | " + loc : ""));
         } else {
           result = { success: false, error: "持久化存储写入失败" };
         }
@@ -107,7 +154,7 @@ function finish(result) {
         result = {
           success: false,
           error: "缺少 lon/lat 参数",
-          usage: "save?lon=经度&lat=纬度&loc=地点名称&alt=海拔 | ?action=query | ?action=clear | ?action=jitter"
+          usage: "save?lon=经度&lat=纬度&loc=地点名称&alt=海拔&cs=gcj(输入为高德GCJ-02坐标时加上,自动转WGS-84) | ?action=query | ?action=clear | ?action=jitter"
         };
       }
     }

@@ -51,7 +51,7 @@
     <button id="btnSave">储存到设备</button>
     <button id="btnQuery" class="ghost">查询当前生效</button>
   </div>
-  <input type="text" id="paste" placeholder="粘贴高德/苹果链接、短链，或 纬度,经度">
+  <input type="text" id="paste" placeholder="粘贴高德/苹果链接、短链、高德拾取器坐标，或 纬度,经度">
   <div class="btns">
     <button id="btnParse" class="ghost">解析定位</button>
     <button id="btnDefault" class="ghost">用默认位置</button>
@@ -68,15 +68,17 @@
   </div>
   <div class="btns"><button id="btnFav" class="ghost">收藏当前点</button></div>
   <div id="favList"></div>
-  <div class="hint">街道图为高德 GCJ-02，卫星/浅图/OSM 为 WGS-84——页面已自动换算，任何底图上点选得到的都是与考勤 App 一致的 GCJ-02 坐标，直接储存即可。高德短链需配置解析 Worker。需在小火箭代理开启、CA 证书已信任的 Safari 中使用；地图加载失败不影响储存/查询等按钮。</div>
+  <div class="hint">官方说明：考勤地图采用 WGS-84 坐标系，若出现偏差，可参考经纬度获取与转换方法，如使用高德地图经纬度查询网址（坐标拾取器 lbs.amap.com/tools/picker，其查询值为 GCJ-02）。本页保存的坐标均为 WGS-84：卫星/浅图/OSM 上点选与地名搜索结果本身即 WGS-84；街道图为高德 GCJ-02 底图（仅作显示，点选/标记自动换算）；粘贴的高德/苹果链接、高德拾取器坐标（GCJ-02）会自动转成 WGS-84。注意：同一位置的高德 GCJ-02 值与 WGS-84 值在本地区相差约 600 米，用高德地图 App 对照本页坐标有偏差属正常。需在小火箭代理开启、CA 证书已信任的 Safari 中使用；地图加载失败不影响储存/查询等按钮。</div>
 </div>
 <script src="https://cdn.staticfile.org/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 var SAVE_URL = "https://proj-kq.ruioutech.com/zqb-settings/save";
 var DEF_LAT = 28.622877368112636, DEF_LON = 115.91757960765315;
 
-// picked / 收藏 / 生效坐标 全部以 GCJ-02 存储（与考勤 App 上报一致）
-// WGS 底图(OSM/Carto) 仅作显示，点选与标记时自动换算
+// 考勤系统采用 WGS-84 坐标系（官方说明：考勤地图采用 WGS84 坐标系，
+// 若出现偏差可参考经纬度获取与转换方法，如高德坐标拾取器 lbs.amap.com/tools/picker）：
+// picked / 收藏 / 生效坐标 / 保存值 全部以 WGS-84 存储
+// GCJ 底图（高德街道图）仅作显示，点选与标记时自动换算
 var map = null, marker = null, effMarker = null, picked = null;
 var curBase = "street", baseLayer = null;
 
@@ -111,20 +113,20 @@ function gcj2wgs(lat, lng) { // 一次近似逆推，显示用途足够（误差
   return { lat: lat * 2 - g.lat, lng: lng * 2 - g.lng };
 }
 
-// ---------- 底图 ----------
-// 实测(2026-10, 南昌瓦片地物配准 + 用户数据数值验证):
-//   style=7 矢量 = GCJ-02；style=6 卫星影像 = WGS-84（高德影像未加偏，经典坑，
-//   两者相差约 纬+0.0034°/经-0.0048°，在 z16 约 200px）；style=8 路网标注 = GCJ-02，
-//   故卫星模式【不能】叠 style=8（会错位约 200px，wloc 也不叠）。
-//   数据层内部统一 GCJ-02，切到 WGS 底图时由 dPt()/点击回调做渲染层换算。
+// ---------- 底图（2026-10 实测校准） ----------
+// 坐标系事实：考勤系统=WGS-84；高德卫星影像(style=6)=WGS-84（未加偏）；
+// 高德矢量街道(style=7)与路网(style=8)=GCJ-02，与卫星影像相差约 600 米
+// （本地实测：纬向 -378 米 / 经向 +472 米，z16 下错位约 290 像素）。
+// 因此卫星模式不叠 style=8 路网（GCJ 路网叠 WGS 影像会错位）。
+// 数据层统一 WGS-84，仅在 GCJ 底图（街道图）上显示/点选时转换。
 var BASES = {
   street: { cs: "gcj", url: "https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7", sub: "1234", max: 18 },
   sat: { cs: "wgs", url: "https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}", sub: "1234", max: 18 },
   voyager: { cs: "wgs", url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", sub: "abcd", max: 19 },
   osm: { cs: "wgs", url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", sub: "abc", max: 19 }
 };
-// GCJ -> 当前底图显示坐标
-function dPt(lat, lng) { return BASES[curBase].cs === "wgs" ? gcj2wgs(lat, lng) : { lat: lat, lng: lng }; }
+// WGS(数据) -> 当前底图显示坐标
+function dPt(lat, lng) { return BASES[curBase].cs === "gcj" ? wgs2gcj(lat, lng) : { lat: lat, lng: lng }; }
 
 function setBase(key) {
   if (!map) return;
@@ -151,7 +153,7 @@ function initMap() {
   var d = dPt(DEF_LAT, DEF_LON);
   map = L.map("map").setView([d.lat, d.lng], 16);
   map.on("click", function (e) {
-    var p = BASES[curBase].cs === "wgs" ? wgs2gcj(e.latlng.lat, e.latlng.lng) : { lat: e.latlng.lat, lng: e.latlng.lng };
+    var p = BASES[curBase].cs === "gcj" ? gcj2wgs(e.latlng.lat, e.latlng.lng) : { lat: e.latlng.lat, lng: e.latlng.lng };
     setPicked(p.lat, p.lng, false);
   });
   setBase("street");
@@ -163,15 +165,19 @@ function refreshMarkers() {
     var d = dPt(picked.lat, picked.lng);
     marker.setLatLng([d.lat, d.lng]);
   }
-  if (effMarker && effMarker._zqb_gcj) {
-    var g = effMarker._zqb_gcj, d2 = dPt(g.lat, g.lng);
+  if (effMarker && effMarker._zqb_wgs) {
+    var g = effMarker._zqb_wgs, d2 = dPt(g.lat, g.lng);
     effMarker.setLatLng([d2.lat, d2.lng]);
   }
 }
 
 function setPicked(lat, lng, fly) {
   picked = { lat: lat, lng: lng };
-  document.getElementById("picked").innerHTML = "已选中：<b>" + lat.toFixed(10) + ", " + lng.toFixed(10) + "</b>";
+  // 高德拾取器对照值：官方建议用高德网址查坐标（GCJ-02），并列显示便于核对
+  var g = wgs2gcj(lat, lng);
+  document.getElementById("picked").innerHTML =
+    "已选中（WGS-84）：<b>" + lat.toFixed(10) + ", " + lng.toFixed(10) + "</b><br>" +
+    "高德对照（GCJ-02）：" + g.lat.toFixed(6) + ", " + g.lng.toFixed(6);
   if (map) {
     var d = dPt(lat, lng);
     if (marker) marker.remove();
@@ -213,7 +219,7 @@ function showEffective(lat, lng, label) {
   var d = dPt(lat, lng);
   effMarker = L.circleMarker([d.lat, d.lng], { radius: 10, color: "#007aff", fillColor: "#007aff", fillOpacity: 0.4 })
     .addTo(map).bindPopup(label);
-  effMarker._zqb_gcj = { lat: lat, lng: lng };
+  effMarker._zqb_wgs = { lat: lat, lng: lng };
   map.flyTo([d.lat, d.lng], Math.max(map.getZoom(), 16));
 }
 
@@ -221,7 +227,7 @@ document.getElementById("btnQuery").onclick = function () {
   api("action=query").then(function (j) {
     if (j.settings) {
       showEffective(j.settings.latitude, j.settings.longitude, "当前生效：手动选点 " + (j.settings.location || ""));
-      status("当前模式：手动选点 " + j.settings.latitude + ", " + j.settings.longitude, "ok");
+      status("当前模式：手动选点 " + j.settings.latitude + ", " + j.settings.longitude + "（WGS-84）", "ok");
     } else {
       showEffective(DEF_LAT, DEF_LON, "当前生效：默认配置（南莲路53号）");
       status("当前模式：默认配置（南莲路53号）", "ok");
@@ -241,7 +247,7 @@ document.getElementById("btnDefault").onclick = function () {
   setPicked(DEF_LAT, DEF_LON, true);
 };
 
-// ---------- 地名搜索（nominatim 返回 WGS-84，自动转 GCJ-02） ----------
+// ---------- 地名搜索（nominatim 返回 WGS-84，与考勤系统一致，直接使用） ----------
 function searchPlace() {
   var q = document.getElementById("search").value.trim();
   if (!q) { status("请输入地名", "err"); return; }
@@ -250,9 +256,8 @@ function searchPlace() {
     .then(function (r) { return r.json(); })
     .then(function (rs) {
       if (!rs || !rs.length) { status("未找到：" + q, "err"); return; }
-      var g = wgs2gcj(parseFloat(rs[0].lat), parseFloat(rs[0].lon));
-      setPicked(g.lat, g.lng, true);
-      status("已定位（WGS→GCJ 已换算）：" + (rs[0].display_name || "").slice(0, 40), "ok");
+      setPicked(parseFloat(rs[0].lat), parseFloat(rs[0].lon), true);
+      status("已定位（WGS-84）：" + (rs[0].display_name || "").slice(0, 40), "ok");
     })
     .catch(function () { status("搜索失败（网络）", "err"); });
 }
@@ -269,8 +274,8 @@ function parseViaWorker(u) {
     .then(function (r) { return r.json(); })
     .then(function (j) {
       if (j.error) { status("❌ Worker：" + j.error, "err"); return; }
-      setPicked(j.lat, j.lon, true);
-      status("已解析短链（GCJ-02）", "ok");
+      setPicked(j.lat, j.lon, true); // Worker 已统一转换为 WGS-84
+      status("已解析短链（GCJ→WGS 已由 Worker 转换）", "ok");
     })
     .catch(function () { status("❌ Worker 请求失败（地址错误或网络问题）", "err"); });
 }
@@ -279,12 +284,12 @@ function parseViaWorker(u) {
 function parseInput() {
   var s = document.getElementById("paste").value.trim();
   if (!s) { status("请先粘贴内容", "err"); return; }
-  // 高德: position=经度,纬度（含 uri.amap.com/marker 完整链）
+  // 高德: position=经度,纬度（含 uri.amap.com/marker 完整链，GCJ-02 → WGS-84）
   var m = s.match(/[?&]position=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
-  if (m) { setPicked(parseFloat(m[2]), parseFloat(m[1]), true); status("已按高德链接定位（GCJ-02）", "ok"); return; }
-  // 苹果: ll= 或 coordinate=纬度,经度
+  if (m) { var w1 = gcj2wgs(parseFloat(m[2]), parseFloat(m[1])); setPicked(w1.lat, w1.lng, true); status("已按高德链接定位（GCJ→WGS 已转换）", "ok"); return; }
+  // 苹果: ll= 或 coordinate=纬度,经度（GCJ-02 → WGS-84）
   m = s.match(/[?&](?:ll|coordinate)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
-  if (m) { setPicked(parseFloat(m[1]), parseFloat(m[2]), true); status("已按苹果地图链接定位（GCJ-02）", "ok"); return; }
+  if (m) { var w2 = gcj2wgs(parseFloat(m[1]), parseFloat(m[2])); setPicked(w2.lat, w2.lng, true); status("已按苹果地图链接定位（GCJ→WGS 已转换）", "ok"); return; }
   // 裸坐标对（自动判断纬经顺序，按中国范围）
   m = s.match(/(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)/);
   if (m) {
@@ -292,8 +297,9 @@ function parseInput() {
     var isLat = function (v) { return v >= 18 && v <= 54; };
     var isLng = function (v) { return v >= 73 && v <= 136; };
     if (isLng(a) && isLat(b)) { var t = a; a = b; b = t; } // 输入是 经度,纬度 → 交换
-    setPicked(a, b, true);
-    status("已定位，请确认坐标是否正确", "ok");
+    var w3 = gcj2wgs(a, b); // 考勤系统提示用高德网址查坐标，高德查询值为 GCJ-02，统一转 WGS-84
+    setPicked(w3.lat, w3.lng, true);
+    status("已按 GCJ-02（高德查询值）转换为 WGS-84 定位；若你粘贴的本身是 WGS-84 坐标，请改用地图点选", "ok");
     return;
   }
   // 其余链接（高德短链等）→ Worker 跟跳转解析
