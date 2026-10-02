@@ -46,7 +46,7 @@
     <input type="text" id="search" placeholder="搜索地名，如：南莲路53号">
     <button id="btnSearch" class="ghost mini">搜索</button>
   </div>
-  <input type="text" id="locName" placeholder="地点名称（建议填写，如：南莲路53号）">
+  <input type="text" id="locName" placeholder="地点名称（选点后自动反查，可修改）">
   <div class="btns">
     <button id="btnSave">储存到设备</button>
     <button id="btnQuery" class="ghost">查询当前生效</button>
@@ -61,6 +61,11 @@
     <button id="btnClear" class="warn">清除选点(恢复默认)</button>
   </div>
   <div id="status"></div>
+  <div class="sect">中文地址反查（选点后自动填入地点名称；默认 OSM，填高德 Key 更准）</div>
+  <div class="row">
+    <input type="text" id="amapKey" placeholder="高德 Web服务 Key（可选，申请步骤见 README）">
+    <button id="btnAmapKey" class="ghost mini">保存</button>
+  </div>
   <div class="sect">链接解析 Worker（解析高德短链用，部署见 README，可留空）</div>
   <div class="row">
     <input type="text" id="workerUrl" placeholder="https://你的worker地址.workers.dev">
@@ -68,7 +73,7 @@
   </div>
   <div class="btns"><button id="btnFav" class="ghost">收藏当前点</button></div>
   <div id="favList"></div>
-  <div class="hint">官方说明：考勤地图采用 WGS-84 坐标系，若出现偏差，可参考经纬度获取与转换方法，如使用高德地图经纬度查询网址（坐标拾取器 lbs.amap.com/tools/picker，其查询值为 GCJ-02）。本页保存的坐标均为 WGS-84：卫星/浅图/OSM 上点选与地名搜索结果本身即 WGS-84；街道图为高德 GCJ-02 底图（仅作显示，点选/标记自动换算）；粘贴的高德/苹果链接、高德拾取器坐标（GCJ-02）会自动转成 WGS-84。注意：同一位置的高德 GCJ-02 值与 WGS-84 值在本地区相差约 600 米，用高德地图 App 对照本页坐标有偏差属正常。需在小火箭代理开启、CA 证书已信任的 Safari 中使用；地图加载失败不影响储存/查询等按钮。</div>
+  <div class="hint">官方说明：地图采用 WGS-84 坐标系，</div>
 </div>
 <script src="https://cdn.staticfile.org/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
@@ -113,16 +118,15 @@ function gcj2wgs(lat, lng) { // 一次近似逆推，显示用途足够（误差
   return { lat: lat * 2 - g.lat, lng: lng * 2 - g.lng };
 }
 
-// ---------- 底图（2026-10 实测校准） ----------
-// 坐标系事实：考勤系统=WGS-84；高德卫星影像(style=6)=WGS-84（未加偏）；
-// 高德矢量街道(style=7)与路网(style=8)=GCJ-02，与卫星影像相差约 600 米
-// （本地实测：纬向 -378 米 / 经向 +472 米，z16 下错位约 290 像素）。
-// 因此卫星模式不叠 style=8 路网（GCJ 路网叠 WGS 影像会错位）。
-// 数据层统一 WGS-84，仅在 GCJ 底图（街道图）上显示/点选时转换。
+// ---------- 底图（2026-10 二次校准） ----------
+// 坐标系事实：考勤系统=WGS-84。高德全系图源——矢量街道(style=7)、卫星影像(style=6)、
+// 路网(style=8)——均为 GCJ-02 加偏（此前"卫星影像未加偏"的判断有误，实测卫星图偏移约600米）。
+// 凡 cs="gcj" 的底图（街道/卫星）显示与点选均自动转换；浅图/OSM 为 WGS-84 图源，直接显示。
+// 浅图换用 ArcGIS World Light Gray（无 Key、国内通常可直连；Carto 源部分网络下无法出图）。
 var BASES = {
   street: { cs: "gcj", url: "https://wprd0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7", sub: "1234", max: 18 },
-  sat: { cs: "wgs", url: "https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}", sub: "1234", max: 18 },
-  voyager: { cs: "wgs", url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", sub: "abcd", max: 19 },
+  sat: { cs: "gcj", url: "https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}", sub: "1234", max: 18 },
+  voyager: { cs: "wgs", url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", sub: "1234", max: 19, nm: 16 },
   osm: { cs: "wgs", url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", sub: "abc", max: 19 }
 };
 // WGS(数据) -> 当前底图显示坐标
@@ -133,7 +137,7 @@ function setBase(key) {
   if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
   curBase = key;
   var b = BASES[key];
-  baseLayer = L.tileLayer(b.url, { subdomains: b.sub, maxZoom: b.max, attribution: key });
+  baseLayer = L.tileLayer(b.url, { subdomains: b.sub, maxZoom: b.max, maxNativeZoom: b.nm || b.max, attribution: key });
   var tileErr = 0;
   baseLayer.on("tileerror", function () {
     if (++tileErr === 3) status("当前地图源加载失败，可切换右上角其他地图源；储存/查询不受影响", "err");
@@ -184,6 +188,7 @@ function setPicked(lat, lng, fly) {
     marker = L.marker([d.lat, d.lng]).addTo(map);
     if (fly) map.flyTo([d.lat, d.lng], Math.max(map.getZoom(), 16));
   }
+  tryAutoName(lat, lng);
 }
 
 function status(msg, cls) {
@@ -205,12 +210,26 @@ function api(qs) {
 
 document.getElementById("btnSave").onclick = function () {
   if (!picked) { status("请先在地图上选点、搜索或粘贴链接", "err"); return; }
-  var name = document.getElementById("locName").value.trim();
-  var qs = "lon=" + picked.lng + "&lat=" + picked.lat + (name ? "&loc=" + encodeURIComponent(name) : "");
-  api(qs).then(function (j) {
-    if (j.success) status("✅ 已保存，下次打卡生效", "ok");
-    else status("❌ " + (j.error || "保存失败"), "err");
-  }).catch(function (e) { status("❌ " + e.message, "err"); });
+  var nameEl = document.getElementById("locName");
+  var name = nameEl.value.trim();
+  var doSave = function () {
+    var qs = "lon=" + picked.lng + "&lat=" + picked.lat + (name ? "&loc=" + encodeURIComponent(name) : "");
+    api(qs).then(function (j) {
+      if (j.success) status("✅ 已保存，下次打卡生效", "ok");
+      else status("❌ " + (j.error || "保存失败"), "err");
+    }).catch(function (e) { status("❌ " + e.message, "err"); });
+  };
+  // 确认选点：名称为空或仍是自动填的值时，用最终坐标强制反查一次中文地址，保证名称与坐标精确对应
+  if (!name || name === autoName) {
+    status("正在通过坐标反查中文地址…");
+    forceAutoName(picked.lat, picked.lng).then(function (s) {
+      if (s && (!name || name === autoName)) { nameEl.value = s; autoName = s; name = s; }
+      if (!name && !confirm("未能获取地址且未填写名称：打卡记录将显示默认地址「南莲路53号附近」，与所选坐标不一致。\n确定不填名称、继续保存吗？")) return;
+      doSave();
+    });
+    return;
+  }
+  doSave();
 };
 
 function showEffective(lat, lng, label) {
@@ -263,6 +282,60 @@ function searchPlace() {
 }
 document.getElementById("btnSearch").onclick = searchPlace;
 document.getElementById("search").addEventListener("keydown", function (e) { if (e.key === "Enter") searchPlace(); });
+
+// ---------- 逆地理编码：选点后自动获取中文地址，填入地点名称（可手动修改） ----------
+// 默认用 OSM Nominatim（免 Key）；配置高德 Web服务 Key 后改用高德（地址更准、格式与考勤记录一致）
+// 高德接口只认 GCJ-02，查询前先 wgs2gcj 转换；Nominatim 直接用 WGS-84
+var autoName = "", lastGeoTs = 0, geoTimer = null;
+function getAmapKey() { try { return (localStorage.getItem("zqb_amapkey") || "").trim(); } catch (e) { return ""; } }
+function fillName(s) {
+  var el = document.getElementById("locName");
+  var cur = el.value.trim();
+  // 仅当为空或仍是上次自动填的值时覆盖，绝不覆盖手动输入
+  if (cur === "" || cur === autoName) {
+    el.value = s; autoName = s;
+    status("已自动填入地点名称：" + s + "（可修改）", "ok");
+  }
+}
+function geoQuery(lat, lng) {
+  var key = getAmapKey();
+  if (key) {
+    var g = wgs2gcj(lat, lng);
+    return fetch("https://restapi.amap.com/v3/geocode/regeo?output=json&extensions=base&key=" + encodeURIComponent(key) + "&location=" + g.lng.toFixed(6) + "," + g.lat.toFixed(6))
+      .then(function (r) { return r.json(); })
+      .then(function (j) { return (j && j.status === "1" && j.regeocode && j.regeocode.formatted_address) ? (j.regeocode.formatted_address + "附近") : null; })
+      .catch(function () { return null; });
+  }
+  return fetch("https://nominatim.openstreetmap.org/reverse?format=json&zoom=18&addressdetails=1&accept-language=zh-CN&lat=" + lat + "&lon=" + lng)
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (!j || !j.address) return null;
+      var a = j.address, parts = [];
+      if (a.state) parts.push(a.state);
+      var c = a.city || a.town || a.county; if (c) parts.push(c);
+      if (a.district || a.suburb) parts.push(a.district || a.suburb);
+      if (a.road) parts.push(a.road);
+      if (a.house_number) parts.push(a.house_number);
+      return parts.length ? (parts.join("") + "附近") : null;
+    })
+    .catch(function () { return null; });
+}
+function tryAutoName(lat, lng) {
+  // Nominatim 限速约 1次/秒：节流窗口内不丢弃请求，改为防抖——定时后用最终坐标补查一次
+  var wait = 1200 - (Date.now() - lastGeoTs);
+  if (wait > 0) {
+    if (geoTimer) clearTimeout(geoTimer);
+    geoTimer = setTimeout(function () { tryAutoName(lat, lng); }, wait + 50);
+    return;
+  }
+  lastGeoTs = Date.now();
+  geoQuery(lat, lng).then(function (s) { if (s) fillName(s); });
+}
+function forceAutoName(lat, lng) {
+  // 确认选点时用最终坐标强制反查（绕过节流，单次手动频率对高德/Nominatim 均可承受）
+  lastGeoTs = Date.now();
+  return geoQuery(lat, lng);
+}
 
 // ---------- Worker 解析（高德短链 surl.amap.com 的坐标藏在 302 跳转里） ----------
 function getWorker() { try { return (localStorage.getItem("zqb_worker") || "").trim(); } catch (e) { return ""; } }
@@ -327,6 +400,14 @@ document.getElementById("btnWorker").onclick = function () {
   status(v ? "✅ Worker 地址已保存" : "已清空 Worker 地址", "ok");
 };
 document.getElementById("workerUrl").value = getWorker();
+
+// 高德 Key 配置（用于地址反查，可选）
+document.getElementById("btnAmapKey").onclick = function () {
+  var v = document.getElementById("amapKey").value.trim();
+  try { localStorage.setItem("zqb_amapkey", v); } catch (e) {}
+  status(v ? "✅ 已保存高德 Key，地址反查改用高德" : "已清空高德 Key，地址反查使用 OSM", "ok");
+};
+document.getElementById("amapKey").value = getAmapKey();
 
 // 底图切换
 document.querySelectorAll("#baseSel button").forEach(function (b) {

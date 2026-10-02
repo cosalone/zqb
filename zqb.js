@@ -187,13 +187,6 @@ function replaceQuery(url, updates) {
   try {
     var url = $request.url || "";
 
-    // 调试: 每次脚本被触发都弹通知, 用于确认脚本是否执行(问题定位后删除)
-    if (ARG.notify !== "0") {
-      var ep = url.indexOf("isInArea") !== -1 ? "isInArea"
-        : (url.indexOf("validateLocation") !== -1 ? "validateLocation" : "records/add");
-      $notification.post("智勤调试", "脚本已触发: " + ep, "");
-    }
-
     var J = getJitter(CFG.longitude, CFG.latitude);
     var jLon = applyJitter(CFG.longitude, false, J);
     var jLat = applyJitter(CFG.latitude, true, J);
@@ -242,9 +235,6 @@ function replaceQuery(url, updates) {
         body2.timeslotId = CFG.timeslotId;
       }
       console.log("[智勤] records/add 已改写坐标(" + source + "): " + jLat + "," + jLon);
-      if (ARG.notify !== "0") {
-        $notification.post("智勤打卡", "已替换打卡坐标(" + source + ")", jLat.toFixed(6) + ", " + jLon.toFixed(6));
-      }
       $done({ body: JSON.stringify(body2) });
       return;
     }

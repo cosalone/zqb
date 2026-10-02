@@ -18,7 +18,7 @@
 
 ## 一、部署（远程托管）
 
-仓库：`https://github.com/cosalone/zqb-wloc`（默认分支 `main`）
+仓库：`https://github.com/cosalone/zqb`（默认分支 `main`）
 
 ### 1. 上传脚本 ✅ 已完成
 
@@ -29,8 +29,8 @@
 `zqb.module` 两处 `script-path` 已指向本仓库直链：
 
 ```
-script-path=https://raw.githubusercontent.com/cosalone/zqb-wloc/main/zqb.js
-script-path=https://raw.githubusercontent.com/cosalone/zqb-wloc/main/zqb-settings.js
+script-path=https://raw.githubusercontent.com/cosalone/zqb/main/zqb.js
+script-path=https://raw.githubusercontent.com/cosalone/zqb/main/zqb-settings.js
 ```
 
 ### 3. 上传模块并订阅（剩余步骤）
@@ -38,12 +38,12 @@ script-path=https://raw.githubusercontent.com/cosalone/zqb-wloc/main/zqb-setting
 把本地已改好地址的 `zqb.module` 上传到仓库根目录（Add file → Upload files），小火箭里订阅的直链是：
 
 ```
-https://raw.githubusercontent.com/cosalone/zqb-wloc/main/zqb.module
+https://raw.githubusercontent.com/cosalone/zqb/main/zqb.module
 ```
 
 > 国内打不开 `raw.githubusercontent.com` 时，换 jsDelivr 加速（订阅地址和模块里两处 `script-path` 都要改）：
-> - 模块订阅：`https://cdn.jsdelivr.net/gh/cosalone/zqb-wloc@main/zqb.module`
-> - 脚本地址：`https://cdn.jsdelivr.net/gh/cosalone/zqb-wloc@main/zqb.js`、`https://cdn.jsdelivr.net/gh/cosalone/zqb-wloc@main/zqb-settings.js`
+> - 模块订阅：`https://cdn.jsdelivr.net/gh/cosalone/zqb@main/zqb.module`
+> - 脚本地址：`https://cdn.jsdelivr.net/gh/cosalone/zqb@main/zqb.js`、`https://cdn.jsdelivr.net/gh/cosalone/zqb@main/zqb-settings.js`
 >
 > 注意：jsDelivr 有缓存，改文件后可能延迟数小时才更新；改完配置急着生效就直接用 raw 地址。
 
@@ -51,7 +51,7 @@ https://raw.githubusercontent.com/cosalone/zqb-wloc/main/zqb.module
 
 把 `index.html` 上传到仓库根目录（与两个 js 文件同级），然后：
 
-1. 打开仓库的 Pages 设置页（直达）：**https://github.com/cosalone/zqb-wloc/settings/pages**
+1. 打开仓库的 Pages 设置页（直达）：**https://github.com/cosalone/zqb/settings/pages**
 2. **Build and deployment → Source** 选 `Deploy from a branch`
 3. **Branch** 下拉框选 `main`，目录选 `/ (root)`，点 **Save**
 4. 等 1~2 分钟，页面顶部出现绿框 "Your site is live" 即开通成功
@@ -59,7 +59,7 @@ https://raw.githubusercontent.com/cosalone/zqb-wloc/main/zqb.module
 开通后的页面地址：
 
 ```
-https://cosalone.github.io/zqb-wloc/
+https://cosalone.github.io/zqb/
 ```
 
 > - 页面必须在小火箭代理开启的状态下用 Safari 访问（它要连本机拦截接口），建议 Safari 分享 → 添加到主屏幕
@@ -97,7 +97,7 @@ https://cosalone.github.io/zqb-wloc/
 
 1. 登录 Cloudflare 控制台 **https://dash.cloudflare.com**（免费账户即可，每天 10 万次请求额度）
 2. 左侧 **Compute (Workers)** → **Create Worker** → 随便起名 → **Deploy** 创建
-3. 点 **Edit code（编辑代码）**，把仓库里 [`worker.js`](https://github.com/cosalone/zqb-wloc/blob/main/worker.js) 的全部内容粘贴进去覆盖默认代码 → **Deploy**
+3. 点 **Edit code（编辑代码）**，把仓库里 [`worker.js`](https://github.com/cosalone/zqb/blob/main/worker.js) 的全部内容粘贴进去覆盖默认代码 → **Deploy**
 4. 记下 Worker 地址，形如 `https://zqb-parse.xxx.workers.dev`
 
 **② 创建快捷指令「智勤选点」（一次性）**
@@ -124,16 +124,17 @@ https://cosalone.github.io/zqb-wloc/
 
 开启 GitHub Pages 后（见部署第 4 步），在小火箭代理开启的状态下用 Safari 打开，建议添加到主屏幕：
 
-**[https://cosalone.github.io/zqb-wloc/](https://cosalone.github.io/zqb-wloc/)**
+**[https://cosalone.github.io/zqb/](https://cosalone.github.io/zqb/)**
 
-- 地图点击选点 → 填地点名称 → 「储存到设备」；右上角可切换地图源（高德街道/高德卫星/Carto/OSM），某个源加载不出来就换一个
+- 地图点击选点 → 填地点名称 → 「储存到设备」；右上角可切换地图源（高德街道/高德卫星/浅色/OSM），某个源加载不出来就换一个
 - 支持**搜索地名**直接定位（OSM 数据）
 - 粘贴高德/苹果链接、高德坐标拾取器坐标、`纬度,经度` 坐标对直接定位（GCJ-02 自动转 WGS-84）；**高德短链**也能解析（需先在页面下方填上你部署的 Worker 地址并点保存）
+- 选点后**自动反查中文地址**填入『地点名称』（即打卡记录里的 `clockLocation`，可手动修改）：默认用 OSM Nominatim 免配置；在页面下方填入高德 **Web服务** Key 后改用高德反查，地址更准、格式更贴近考勤系统。Key 申请：lbs.amap.com 控制台 → 应用管理 → 创建应用 → 添加 Key，类型选 **Web服务**（个人免费额度足够）
 - 复制链接后切回页面会**自动粘贴并解析**，不用手动粘贴
 - 「查询当前生效」会在地图上标出当前实际生效的坐标（蓝点）；页面里也带「清除选点」「重置抖动」按钮
 - 收藏常用位置（本机保存），一键重新储存
 
-> 坐标系说明：官方说明「考勤地图采用 WGS84 坐标系，若出现偏差，可参考经纬度获取与转换方法，如使用高德地图经纬度查询网址等」，因此页面保存的坐标均为 **WGS-84**：粘贴的高德/苹果链接、高德坐标拾取器（lbs.amap.com/tools/picker）查到的值是 GCJ-02，页面会自动转成 WGS-84；OSM/Carto 底图点选和地名搜索结果本身即 WGS-84，直接使用；街道图（高德）为 GCJ-02 底图，仅作显示，点选时自动换算。同一位置的 GCJ-02 与 WGS-84 值在本地区相差约 600 米，用高德地图 App 对照页面坐标有偏差属正常。
+> 坐标系说明：官方说明「考勤地图采用 WGS84 坐标系，若出现偏差，可参考经纬度获取与转换方法，如使用高德地图经纬度查询网址等」，因此页面保存的坐标均为 **WGS-84**：粘贴的高德/苹果链接、高德坐标拾取器（lbs.amap.com/tools/picker）查到的值是 GCJ-02，页面会自动转成 WGS-84；浅色图/OSM 底图点选和地名搜索结果本身即 WGS-84，直接使用；街道图与卫星图（高德）均为 GCJ-02 底图，仅作显示，点选时自动换算——注意高德全系图源（含卫星影像）都加了 GCJ 偏移。同一位置的 GCJ-02 与 WGS-84 值在本地区相差约 600 米，用高德地图 App 对照页面坐标有偏差属正常。
 
 **方式三：直链（在 Safari 中直接点击即可执行）**
 
@@ -180,7 +181,7 @@ https://proj-kq.ruioutech.com/zqb-settings/save?lon=经度&lat=纬度&loc=地点
 用 jsDelivr（见部署第 3 步的替换规则），模块和两个脚本地址都要换。
 
 **Q：选点页面地图空白/瓦片加载失败？**
-右上角切换其他地图源：高德源一般走直连（GEOIP 规则），OSM/Carto 走代理，总有一个能出图。地图加载失败不影响搜索、粘贴、储存等功能。
+右上角切换其他地图源：高德源一般走直连（GEOIP 规则），浅色图/OSM 走代理，总有一个能出图。地图加载失败不影响搜索、粘贴、储存等功能。
 
 **Q：高德短链解析失败？**
 确认已部署 Worker（方式一第①步）且页面里填的地址正确；也可以先在 Safari 里直接打开短链，看能否正常跳转到带坐标的页面。
