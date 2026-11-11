@@ -11,7 +11,8 @@
  *              直接抄高德/苹果分享链接或高德拾取器(lbs.amap.com/tools/picker)的
  *              GCJ-02 坐标时, 在末尾加 &cs=gcj, 脚本自动转成 WGS-84 再保存
  *              (不加则按原值保存, 会偏约 600 米)。
- *              loc 选填(打卡地点名称, 建议填写), alt 选填(海拔, 默认用脚本里的 30.83)
+ *              loc 选填(地点备注名称, 仅用于通知/查询显示, 最新版打卡报文已不提交地点名称),
+ *              alt 选填(海拔, 默认用脚本里的 30.83)
  *   查询当前:  https://proj-kq.ruioutech.com/zqb-settings/save?action=query
  *   清除选点:  https://proj-kq.ruioutech.com/zqb-settings/save?action=clear
  *              (清除后恢复使用 zqb.js 里的默认坐标)
@@ -100,14 +101,14 @@ function finish(result) {
         result = { success: true, mode: "手动选点", settings: saved };
       } else {
         result = { success: true, mode: "默认配置", settings: null,
-          note: "未设置手动选点, 当前使用 zqb.js 内 DEFAULT_CONFIG 默认坐标(南莲路53号)" };
+          note: "未设置手动选点, 当前使用 zqb.js 内 DEFAULT_CONFIG 默认坐标(中国电建集团江西省电力建设有限公司附近)" };
       }
       $notification.post("智勤选点", "查询成功", result.mode);
     } else if (action === "clear") {
       $persistentStore.write("", SETTINGS_KEY);
       // 基准坐标变化会自动触发抖动重算, 这里顺手清掉旧偏移
       $persistentStore.write("", JITTER_KEY);
-      result = { success: true, message: "已清除手动选点, 恢复默认坐标(南莲路53号)" };
+      result = { success: true, message: "已清除手动选点, 恢复默认坐标(中国电建集团江西省电力建设有限公司附近)" };
       $notification.post("智勤选点", "已清除选点", "恢复 zqb.js 默认坐标");
     } else if (action === "jitter") {
       $persistentStore.write("", JITTER_KEY);
@@ -154,7 +155,7 @@ function finish(result) {
         result = {
           success: false,
           error: "缺少 lon/lat 参数",
-          usage: "save?lon=经度&lat=纬度&loc=地点名称&alt=海拔&cs=gcj(输入为高德GCJ-02坐标时加上,自动转WGS-84) | ?action=query | ?action=clear | ?action=jitter"
+          usage: "save?lon=经度&lat=纬度&loc=地点备注(仅显示用)&alt=海拔&cs=gcj(输入为高德GCJ-02坐标时加上,自动转WGS-84) | ?action=query | ?action=clear | ?action=jitter"
         };
       }
     }
