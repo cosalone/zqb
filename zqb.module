@@ -1,5 +1,5 @@
-#!name=智勤打卡定位
-#!desc=拦截智勤考勤2个接口(validateLocation/records/add)替换上报坐标并施加GPS抖动防检测(isInArea已在最新版小程序中移除,无需拦截)。手动选点: Safari访问 https://proj-kq.ruioutech.com/zqb-settings/save?lon=115.9172&lat=28.6236&loc=地点名称 (坐标须WGS-84; 高德GCJ-02值加&cs=gcj自动转换) ; ?action=query 查询 / ?action=clear 恢复默认 / ?action=jitter 重置抖动。默认坐标为中国电建集团江西省电力建设有限公司附近, 可编辑 zqb.js 中 DEFAULT_CONFIG。需开启MITM并信任CA证书。
+#!name=智勤打卡定位v2.5.1
+#!desc=拦截智勤考勤2个接口(validateLocation/records/add)替换上报坐标并施加GPS抖动防检测。手动选点: Safari访问 https://proj-kq.ruioutech.com/zqb-settings/save?lon=115.9172&lat=28.6236&loc=地点名称 (坐标须WGS-84; 高德GCJ-02值加&cs=gcj自动转换) ; ?action=query 查询 / ?action=clear 恢复默认 / ?action=jitter 重置抖动。可编辑 zqb.js 中 DEFAULT_CONFIG。需开启MITM并信任CA证书。
 #!category=Tools
 [Script]
 智勤打卡 = type=http-request,pattern=^https?:\/\/proj-kq\.ruioutech\.com\/prod-api\/attendance\/(rules\/validateLocation|records\/add),requires-body=1,timeout=30,script-path=https://raw.githubusercontent.com/cosalone/zqb/main/zqb.js
