@@ -1,52 +1,40 @@
 /*
- * 智勤打卡定位修改 - Shadowrocket(小火箭)版
- * 移植自 ProxyPin 脚本「智勤包v2.1.json」，手动选点机制参考 wloc 项目
+ * 智勤打卡定位 - Shadowrocket(小火箭)版
+ * 已适配最新版脚本「zqb-v2.5.1」与最新版小程序(v46)报文格式, 手动选点机制参考 wloc 项目
  *
- * 拦截 3 个考勤接口:
- *   GET  /prod-api/attendance/rules/isInArea         -> 改写 URL 查询参数 longitude/latitude
- *   POST /prod-api/attendance/rules/validateLocation -> 改写 body: longitude/latitude/altitude/ssid/bssid
- *   POST /prod-api/attendance/records/add            -> 改写 body: longitude/latitude/clockLocation/inArea/clockTime/timeslotId
+ * 拦截 2 个考勤接口(isInArea 已在最新版小程序中移除, 不再拦截):
+ *   POST /prod-api/attendance/rules/validateLocation -> 改写 body: longitude/latitude/altitude(抖动)
+ *   POST /prod-api/attendance/records/add            -> 改写 body: longitude/latitude(抖动)
+ *
+ * 其余字段全部透传原包: inArea(App 根据 validateLocation 响应自动得出)、
+ * clockTime/beijingTime/timeslotId/timeZone、speed(-1)、accuracy 三兄弟、
+ * ssid/bssid、localip/netmask、异常场景的 checkId/evidenceBase64
  *
  * 坐标优先级: 手动选点($persistentStore: zqb_settings) > 模块参数($argument) > 脚本默认(DEFAULT_CONFIG)
  *
  * 坐标系: 考勤地图为 WGS-84(官方说明), 默认坐标/手动选点均须为 WGS-84;
  *         高德/苹果链接及高德拾取器的 GCJ-02 值须经选点页面/Worker/&cs=gcj 转换后使用
  *
- * 抖动算法与 ProxyPin 版完全一致:
+ * 抖动算法与 ProxyPin v2.5.1 完全一致:
  *   经纬度: 前3位小数固定, 第4位±1, 第5-14位完全随机, 总幅度±0.0001°(约±10米)
  *   海拔:   整数部分±1, 小数部分完全随机
  *   小火箭每次请求都是独立 JS 上下文, 无法用 globalThis 缓存,
  *   因此抖动偏移存于 $persistentStore(zqb_jitter), 滑动 TTL(默认600秒):
- *   同一次打卡流程中 3 个接口间隔远小于 TTL, 保证坐标一致;
+ *   同一次打卡流程中 2 个接口间隔远小于 TTL, 保证坐标一致;
  *   早晚打卡间隔大于 TTL, 自然生成新偏移(模拟真实 GPS 的日间波动)。
- *   如抖动后坐标超出考勤范围, 访问 ...?action=jitter 重置偏移即可。
+ *   如抖动坐标超出考勤范围, 访问 ...?action=jitter 重置偏移即可。
  */
 
-// ================= 默认配置(与原 TARGET_CONFIG 一致) =================
+// ================= 默认配置 =================
 // 坐标为 WGS-84(官方: 考勤地图采用 WGS84 坐标系), 取自实测抓包;
 // 勿直接填高德拾取器/分享链接里的 GCJ-02 原始值(与 WGS-84 相差约 600 米)
 var DEFAULT_CONFIG = {
   // 目标位置
   longitude: "115.91722641914227",
   latitude: "28.623598562618763",
-  clockLocation: "江西省南昌市青云谱区三家店街道中国电建集团江西省电力建设有限公司附近",
 
-  // 打卡时间: null 表示保持原包时间不变; 格式 "2026-06-25 08:30:00"
-  clockTime: null,
-
-  // 上下班类型: null 表示保持原包类型不变; 
-  timeslotId: null,
-
-  inArea: "1",
-
-  // 移动数据模拟参数
-  // ssid/bssid 为 null 表示走移动数据
-  // speed/accuracy/horizontalAccuracy/verticalAccuracy/localip/netmask 保留原包值不修改
-  mobile: {
-    altitude: 30.83467215843965,
-    ssid: null,
-    bssid: null
-  }
+  // 海拔基准(按目标地点实际楼层核对调整)
+  altitude: 30.83467215843965
 };
 
 var SETTINGS_KEY = "zqb_settings"; // 手动选点存储(与 zqb-settings.js 共用)
@@ -87,22 +75,14 @@ var SAVED = readSaved();
 var CFG = {
   longitude: String((SAVED && SAVED.longitude) || ARG.longitude || DEFAULT_CONFIG.longitude),
   latitude: String((SAVED && SAVED.latitude) || ARG.latitude || DEFAULT_CONFIG.latitude),
-  clockLocation: (SAVED && SAVED.location) || ARG.location || DEFAULT_CONFIG.clockLocation,
-  clockTime: ARG.clockTime || DEFAULT_CONFIG.clockTime,
-  inArea: ARG.inArea || DEFAULT_CONFIG.inArea,
-  altitude: (SAVED && SAVED.altitude) || ARG.altitude || DEFAULT_CONFIG.mobile.altitude,
-  ssid: DEFAULT_CONFIG.mobile.ssid,
-  bssid: DEFAULT_CONFIG.mobile.bssid
+  altitude: (SAVED && SAVED.altitude) || ARG.altitude || DEFAULT_CONFIG.altitude
 };
-// timeslotId 需保持数字类型(与原包一致)
-var tsid = ARG.timeslotId || DEFAULT_CONFIG.timeslotId;
-CFG.timeslotId = tsid ? parseInt(tsid, 10) : null;
 
 if (ARG.jitterTtl && parseInt(ARG.jitterTtl, 10) > 0) {
   JITTER_TTL = parseInt(ARG.jitterTtl, 10);
 }
 
-// ================= 抖动(算法与 ProxyPin 版完全一致) =================
+// ================= 抖动(算法与 ProxyPin v2.5.1 完全一致) =================
 // 缓存于持久化存储; 基准坐标变化或超时后自动重新生成
 function getJitter(baseLon, baseLat) {
   var cache = null;
@@ -130,7 +110,7 @@ function getJitter(baseLon, baseLat) {
       altRandomDecimal: Math.random()
     };
   } else {
-    // 滑动续期: 保证同一打卡流程 3 个接口使用同一组偏移
+    // 滑动续期: 保证同一打卡流程 2 个接口使用同一组偏移
     cache.ts = now;
   }
   $persistentStore.write(JSON.stringify(cache), JITTER_KEY);
@@ -160,28 +140,6 @@ function applyAltitudeJitter(baseAltitude, J) {
   return parseFloat(result.toFixed(14));
 }
 
-// ================= URL 查询参数改写(isInArea 用) =================
-function replaceQuery(url, updates) {
-  var idx = url.indexOf("?");
-  var base = idx === -1 ? url : url.slice(0, idx);
-  var qs = idx === -1 ? "" : url.slice(idx + 1);
-  var seen = {};
-  var parts = qs.split("&").filter(Boolean).map(function (p) {
-    var i = p.indexOf("=");
-    var k = i === -1 ? p : p.slice(0, i);
-    var v = i === -1 ? "" : p.slice(i + 1);
-    if (Object.prototype.hasOwnProperty.call(updates, k)) {
-      seen[k] = true;
-      return k + "=" + encodeURIComponent(updates[k]);
-    }
-    return p;
-  });
-  Object.keys(updates).forEach(function (k) {
-    if (!seen[k]) parts.push(k + "=" + encodeURIComponent(updates[k]));
-  });
-  return base + (parts.length ? "?" + parts.join("&") : "");
-}
-
 // ================= 主逻辑 =================
 (function () {
   try {
@@ -194,52 +152,31 @@ function replaceQuery(url, updates) {
 
     var source = SAVED ? "手动选点" : "默认配置";
 
-    // 接口1: 区域判断(GET, 修改查询参数)
-    if (url.indexOf("attendance/rules/isInArea") !== -1) {
-      console.log("[智勤] isInArea 已改写坐标(" + source + "): " + jLat + "," + jLon);
-      $done({
-        url: replaceQuery(url, {
-          longitude: jLon.toString(),
-          latitude: jLat.toString()
-        })
-      });
-      return;
-    }
-
-    // 接口2: 位置校验(POST, 经纬度/海拔为数字类型, 与原包一致)
+    // 接口1: 位置校验(POST, 经纬度/海拔为数字类型, 与原包一致)
+    // 只改经纬度/海拔(抖动); speed/accuracy三兄弟/ssid/bssid/localip/netmask 全部透传
     if (url.indexOf("attendance/rules/validateLocation") !== -1 && $request.body) {
       var body = JSON.parse($request.body);
       body.longitude = jLon;
       body.latitude = jLat;
       body.altitude = jAlt;
-      body.ssid = CFG.ssid;
-      body.bssid = CFG.bssid;
       console.log("[智勤] validateLocation 已改写坐标(" + source + "): " + jLat + "," + jLon);
       $done({ body: JSON.stringify(body) });
       return;
     }
 
-    // 接口3: 打卡提交(POST, 经纬度为字符串类型, 与原包一致)
+    // 接口2: 打卡提交(POST, 经纬度为数字类型, 与原包一致)
+    // 只改经纬度(与 validateLocation 同一偏移, 保证同次打卡坐标一致),
+    // inArea/clockTime/beijingTime/timeslotId/timeZone/checkId/evidenceBase64 全部透传
     if (url.indexOf("attendance/records/add") !== -1 && $request.body) {
       var body2 = JSON.parse($request.body);
-      body2.longitude = jLon.toString();
-      body2.latitude = jLat.toString();
-      body2.clockLocation = CFG.clockLocation;
-      body2.inArea = CFG.inArea;
-
-      if (CFG.clockTime) {
-        body2.clockTime = CFG.clockTime;
-        body2.beijingTime = CFG.clockTime;
-      }
-      if (CFG.timeslotId) {
-        body2.timeslotId = CFG.timeslotId;
-      }
+      body2.longitude = jLon;
+      body2.latitude = jLat;
       console.log("[智勤] records/add 已改写坐标(" + source + "): " + jLat + "," + jLon);
       $done({ body: JSON.stringify(body2) });
       return;
     }
 
-    // 未匹配(如 GET 无 body 等): 原样放行
+    // 未匹配: 原样放行
     $done({});
   } catch (e) {
     console.log("[智勤] 脚本异常, 已放行原请求: " + (e && e.message));
