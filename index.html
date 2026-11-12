@@ -30,6 +30,9 @@
   .fav-item .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hint { font-size: 11px; color: #999; margin-top: 8px; line-height: 1.5; }
   .sect { font-size: 12px; color: #666; margin: 10px 0 6px; }
+  details.adv { margin: 4px 0; }
+  details.adv summary { font-size: 12px; color: #666; cursor: pointer; padding: 8px 0; user-select: none; -webkit-user-select: none; }
+  details.adv .sect { margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -46,7 +49,7 @@
     <input type="text" id="search" placeholder="搜索地名，如：广州路69号">
     <button id="btnSearch" class="ghost mini">搜索</button>
   </div>
-  <input type="text" id="locName" placeholder="地点名称（选点后自动反查，可修改）">
+  <input type="text" id="locName" placeholder="地点名称（选填，仅备注显示；选点后自动反查，可修改）">
   <div class="btns">
     <button id="btnSave">储存到设备</button>
     <button id="btnQuery" class="ghost">查询当前生效</button>
@@ -61,16 +64,19 @@
     <button id="btnClear" class="warn">清除选点(恢复默认)</button>
   </div>
   <div id="status"></div>
-  <div class="sect">中文地址反查（选点后自动填入地点名称；默认 OSM，填高德 Key 更准）</div>
-  <div class="row">
-    <input type="text" id="amapKey" placeholder="高德 Web服务 Key（可选，申请步骤见 README）">
-    <button id="btnAmapKey" class="ghost mini">保存</button>
-  </div>
-  <div class="sect">链接解析 Worker（解析高德短链用，部署见 README，可留空）</div>
-  <div class="row">
-    <input type="text" id="workerUrl" placeholder="https://你的worker地址.workers.dev">
-    <button id="btnWorker" class="ghost mini">保存</button>
-  </div>
+  <details class="adv">
+    <summary>高级设置：中文地址反查 / 短链解析 Worker（可不填）</summary>
+    <div class="sect">中文地址反查（地点名称仅作备注，打卡不提交；默认 OSM，填高德 Key 更准且国内可直连）</div>
+    <div class="row">
+      <input type="text" id="amapKey" placeholder="高德 Web服务 Key（可选，申请步骤见 README）">
+      <button id="btnAmapKey" class="ghost mini">保存</button>
+    </div>
+    <div class="sect">链接解析 Worker（仅解析高德短链用，部署见 README，可留空）</div>
+    <div class="row">
+      <input type="text" id="workerUrl" placeholder="https://你的worker地址.workers.dev">
+      <button id="btnWorker" class="ghost mini">保存</button>
+    </div>
+  </details>
   <div class="btns"><button id="btnFav" class="ghost">收藏当前点</button></div>
   <div id="favList"></div>
   <div class="hint">官方说明：地图采用 WGS-84 坐标系，</div>
@@ -210,26 +216,13 @@ function api(qs) {
 
 document.getElementById("btnSave").onclick = function () {
   if (!picked) { status("请先在地图上选点、搜索或粘贴链接", "err"); return; }
-  var nameEl = document.getElementById("locName");
-  var name = nameEl.value.trim();
-  var doSave = function () {
-    var qs = "lon=" + picked.lng + "&lat=" + picked.lat + (name ? "&loc=" + encodeURIComponent(name) : "");
-    api(qs).then(function (j) {
-      if (j.success) status("✅ 已保存，下次打卡生效", "ok");
-      else status("❌ " + (j.error || "保存失败"), "err");
-    }).catch(function (e) { status("❌ " + e.message, "err"); });
-  };
-  // 确认选点：名称为空或仍是自动填的值时，用最终坐标强制反查一次中文地址，保证名称与坐标精确对应
-  if (!name || name === autoName) {
-    status("正在通过坐标反查中文地址…");
-    forceAutoName(picked.lat, picked.lng).then(function (s) {
-      if (s && (!name || name === autoName)) { nameEl.value = s; autoName = s; name = s; }
-      if (!name && !confirm("未能获取地址且未填写名称：地点名称仅作为备注显示，不影响打卡提交。\n确定不填名称、继续保存吗？")) return;
-      doSave();
-    });
-    return;
-  }
-  doSave();
+  // v46 打卡报文不再提交地点名称, 此处 loc 仅作备注/通知显示, 直接保存无需反查
+  var name = document.getElementById("locName").value.trim();
+  var qs = "lon=" + picked.lng + "&lat=" + picked.lat + (name ? "&loc=" + encodeURIComponent(name) : "");
+  api(qs).then(function (j) {
+    if (j.success) status("✅ 已保存，下次打卡生效", "ok");
+    else status("❌ " + (j.error || "保存失败"), "err");
+  }).catch(function (e) { status("❌ " + e.message, "err"); });
 };
 
 function showEffective(lat, lng, label) {
@@ -266,11 +259,26 @@ document.getElementById("btnDefault").onclick = function () {
   setPicked(DEF_LAT, DEF_LON, true);
 };
 
-// ---------- 地名搜索（nominatim 返回 WGS-84，与考勤系统一致，直接使用） ----------
+// ---------- 地名搜索（填了高德 Key 走高德 POI 搜索，国内可直连；未填走 OSM Nominatim） ----------
+// 高德搜索返回 GCJ-02，需转 WGS-84；Nominatim 返回 WGS-84，直接使用
 function searchPlace() {
   var q = document.getElementById("search").value.trim();
   if (!q) { status("请输入地名", "err"); return; }
   status("搜索中…");
+  var amapKey = getAmapKey();
+  if (amapKey) {
+    fetch("https://restapi.amap.com/v3/place/text?key=" + encodeURIComponent(amapKey) + "&offset=5&page=1&extensions=base&keywords=" + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.status === "1" && j.pois && j.pois.length) {
+          var p = j.pois[0].location.split(","), w = gcj2wgs(parseFloat(p[1]), parseFloat(p[0]));
+          setPicked(w.lat, w.lng, true);
+          status("已定位（高德→WGS-84）：" + j.pois[0].name + (j.pois[0].address ? " " + j.pois[0].address : ""), "ok");
+        } else status("未找到：" + q, "err");
+      })
+      .catch(function () { status("高德搜索失败（网络或 Key 无效）", "err"); });
+    return;
+  }
   fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=zh-CN&q=" + encodeURIComponent(q))
     .then(function (r) { return r.json(); })
     .then(function (rs) {
@@ -278,13 +286,13 @@ function searchPlace() {
       setPicked(parseFloat(rs[0].lat), parseFloat(rs[0].lon), true);
       status("已定位（WGS-84）：" + (rs[0].display_name || "").slice(0, 40), "ok");
     })
-    .catch(function () { status("搜索失败（网络）", "err"); });
+    .catch(function () { status("搜索失败（网络）。可在高级设置填高德 Key 改用高德搜索，国内可直连", "err"); });
 }
 document.getElementById("btnSearch").onclick = searchPlace;
 document.getElementById("search").addEventListener("keydown", function (e) { if (e.key === "Enter") searchPlace(); });
 
 // ---------- 逆地理编码：选点后自动获取中文地址，填入地点名称（可手动修改） ----------
-// 默认用 OSM Nominatim（免 Key）；页面下方填入高德 Web服务 Key 后改用高德（地址更准）
+// 默认用 OSM Nominatim（免 Key）；在"高级设置"填入高德 Web服务 Key 后改用高德（地址更准，国内可直连）
 // 注：v46 打卡报文不再提交地点名称，此处名称仅作页面备注显示；打卡记录地址由服务端按提交坐标生成
 // 高德接口只认 GCJ-02，查询前先 wgs2gcj 转换；Nominatim 直接用 WGS-84
 var autoName = "", lastGeoTs = 0, geoTimer = null;
@@ -332,17 +340,12 @@ function tryAutoName(lat, lng) {
   lastGeoTs = Date.now();
   geoQuery(lat, lng).then(function (s) { if (s) fillName(s); });
 }
-function forceAutoName(lat, lng) {
-  // 确认选点时用最终坐标强制反查（绕过节流，单次手动频率对高德/Nominatim 均可承受）
-  lastGeoTs = Date.now();
-  return geoQuery(lat, lng);
-}
 
 // ---------- Worker 解析（高德短链 surl.amap.com 的坐标藏在 302 跳转里） ----------
 function getWorker() { try { return (localStorage.getItem("zqb_worker") || "").trim(); } catch (e) { return ""; } }
 function parseViaWorker(u) {
   var w = getWorker();
-  if (!w) { status("高德短链需解析 Worker：在下方填入你部署的 Worker 地址（部署步骤见 README）", "err"); return; }
+  if (!w) { status("高德短链需解析 Worker：展开\"高级设置\"填入你部署的 Worker 地址（部署步骤见 README）", "err"); return; }
   status("正在通过 Worker 解析短链…");
   fetch(w.replace(/\/+$/, "") + "/parse?u=" + encodeURIComponent(u))
     .then(function (r) { return r.json(); })
@@ -378,7 +381,7 @@ function parseInput() {
   }
   // 其余链接（高德短链等）→ Worker 跟跳转解析
   if (/https?:\/\//i.test(s)) { parseViaWorker(s); return; }
-  status("未识别出坐标（短链需配置解析 Worker，见 README）", "err");
+  status("未识别出坐标（高德短链需在\"高级设置\"配置解析 Worker，见 README）", "err");
 }
 document.getElementById("btnParse").onclick = parseInput;
 document.getElementById("paste").addEventListener("keydown", function (e) { if (e.key === "Enter") parseInput(); });
