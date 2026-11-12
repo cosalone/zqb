@@ -14,7 +14,7 @@
 | `worker.js` | 链接解析 Worker（Cloudflare Workers 免费版，解析高德短链用） |
 | `zqb-page.js` | 页面自服务脚本：拦截 `proj-kq.ruioutech.com/zqb-page` 直接返回选点页 HTML（由 `build-zqb-page.js` 从 index.html 生成，勿手改） |
 | `build-zqb-page.js` | 构建脚本：`node build-zqb-page.js` 把 index.html 打包成 zqb-page.js |
-| `zqb.module` | 小火箭模块：2 条脚本规则 + MITM 域名（已指向本仓库直链） |
+| `zqb.module` | 小火箭模块：3 条脚本规则（打卡/选点/页面自服务）+ MITM 域名（已指向本仓库直链） |
 
 ---
 
@@ -28,11 +28,12 @@
 
 ### 2. 模块脚本地址 ✅ 已配置
 
-`zqb.module` 两处 `script-path` 已指向 GitHub Pages 直链（国内直连可用，缓存约 10 分钟）：
+`zqb.module` 三处 `script-path` 已指向 GitHub Pages 直链（国内直连可用，缓存约 10 分钟）：
 
 ```
 script-path=https://cosalone.github.io/zqb/zqb.js
 script-path=https://cosalone.github.io/zqb/zqb-settings.js
+script-path=https://cosalone.github.io/zqb/zqb-page.js
 ```
 
 ### 3. 上传模块并订阅（剩余步骤）
@@ -45,7 +46,7 @@ https://cosalone.github.io/zqb/zqb.module
 
 > ### 分发源速查（主源 GitHub Pages，备用 jsDelivr / raw）
 >
-> 三源指向同一仓库文件，一次 commit 三源同时更新，仅缓存延迟不同。切换时**订阅地址和模块里两处 script-path 必须一起换**。
+> 三源指向同一仓库文件，一次 commit 三源同时更新，仅缓存延迟不同。切换时**订阅地址和模块里三处 script-path 必须一起换**。
 >
 > | 优先级 | 模块订阅 | zqb.js | zqb-settings.js | 缓存 |
 > |---|---|---|---|---|
@@ -132,9 +133,11 @@ https://cosalone.github.io/zqb/
 
 **方式二：在线选点页面**
 
-开启 GitHub Pages 后（见部署第 4 步），在小火箭代理开启的状态下用 Safari 打开，建议添加到主屏幕：
+模块启用后（含「智勤页面」脚本），Safari 打开（代理开/关均可，建议添加到主屏幕）：
 
-**[https://cosalone.github.io/zqb/](https://cosalone.github.io/zqb/)**
+**[https://proj-kq.ruioutech.com/zqb-page](https://proj-kq.ruioutech.com/zqb-page)**
+
+> 页面由本地脚本直接吐出，不依赖 GitHub Pages 是否可达（机制见[第五节](#五选点页本地自服务与自动更新模块内置推荐)）；旧地址 [https://cosalone.github.io/zqb/](https://cosalone.github.io/zqb/) 仍保留可用（需代理）。
 
 - 地图点击选点 → 填地点名称 → 「储存到设备」；右上角可切换地图源（高德街道/高德卫星/浅色/OSM），某个源加载不出来就换一个
 - 支持**搜索地名**直接定位（默认 OSM 数据；在「高级设置」填入高德 Key 后自动改用高德搜索，国内可直连）
@@ -146,7 +149,7 @@ https://cosalone.github.io/zqb/
 - 「查询当前生效」会在地图上标出当前实际生效的坐标（蓝点）；页面里也带「清除选点」「重置抖动」按钮
 - 收藏常用位置（本机保存），一键重新储存
 
-> **无代理节点直连说明**：小火箭 VPN 开着但全部走 DIRECT 规则 + MITM 时，核心链路（选点、储存、查询、打卡拦截）可正常工作，不需要任何机场节点（`proj-kq.ruioutech.com` 直连规则下 MITM 依然生效）。但页面本体和模块两处 `script-path` 都托管在 GitHub Pages，大陆直连 github.io 基本不可达——想彻底脱离代理，按 **[五、纯直连部署](#五纯直连部署方案二本地脚本自给自足)** 把脚本转为小火箭本地脚本即可（页面由本地脚本拦截 `zqb-page` 直接吐出，不再依赖任何外部托管）。页面内的瓦片/搜索依赖：高德底图、浅色图、Leaflet（staticfile CDN）、高德搜索/反查（填 Key 后）均可直连；OSM 底图、OSM 搜索、workers.dev 短链解析直连不可用（底图可切换，后两者已有高德/非必需替代）。
+> **无代理节点直连说明**：小火箭 VPN 开着但全部走 DIRECT 规则 + MITM 时，核心链路（选点、储存、查询、打卡拦截）可正常工作，不需要任何机场节点（`proj-kq.ruioutech.com` 直连规则下 MITM 依然生效）。选点页已由模块内置的「智勤页面」脚本本地自服务（见 **[五、选点页本地自服务与自动更新](#五选点页本地自服务与自动更新模块内置推荐)**），页面本体不再依赖 github.io；脚本自动更新需在代理在线时完成，无代理时沿用已缓存脚本照常工作。页面内的瓦片/搜索依赖：高德底图、浅色图、Leaflet（staticfile CDN）、高德搜索/反查（填 Key 后）均可直连；OSM 底图、OSM 搜索、workers.dev 短链解析直连不可用（底图可切换，后两者已有高德/非必需替代）。
 
 > 坐标系说明：官方说明「考勤地图采用 WGS84 坐标系，若出现偏差，可参考经纬度获取与转换方法，如使用高德地图经纬度查询网址等」，因此页面保存的坐标均为 **WGS-84**：粘贴的高德/苹果链接、高德坐标拾取器（lbs.amap.com/tools/picker）查到的值是 GCJ-02，页面会自动转成 WGS-84；浅色图/OSM 底图点选和地名搜索结果本身即 WGS-84，直接使用；街道图与卫星图（高德）均为 GCJ-02 底图，仅作显示，点选时自动换算——注意高德全系图源（含卫星影像）都加了 GCJ 偏移。同一位置的 GCJ-02 与 WGS-84 值在本地区相差约 600 米，用高德地图 App 对照页面坐标有偏差属正常。
 
@@ -210,21 +213,23 @@ https://proj-kq.ruioutech.com/zqb-settings/save?lon=经度&lat=纬度&loc=地点
 
 ---
 
-## 五、纯直连部署（方案二：本地脚本自给自足）
+## 五、选点页本地自服务与自动更新（模块内置，推荐）
 
-把 3 个脚本存进小火箭「本地脚本」，页面 HTML 由脚本拦截 `https://proj-kq.ruioutech.com/zqb-page` 直接返回（与选点拦截同一机制，请求不出网）。设置完成后**全部流量走直连规则即可，不需要任何代理节点**，也不再依赖 GitHub Pages 是否可达。
+模块内置第三条脚本「智勤页面」（`zqb-page.js`）：拦截 `https://proj-kq.ruioutech.com/zqb-page`，直接返回**内嵌的选点页 HTML**（与选点拦截同一机制，请求不出网）。页面本体不再依赖 GitHub Pages 是否可达。
 
-**前提**：`zqb-page.js` 由 [`index.html`](index.html) 经 `node build-zqb-page.js` 自动生成（本仓库已含成品），仓库根目录需有 `zqb.js`、`zqb-settings.js`、`zqb-page.js` 三个文件。
+- **页面地址**：**https://proj-kq.ruioutech.com/zqb-page**（代理开/关都能打开），建议 Safari 分享 → 添加到主屏幕；旧的 `cosalone.github.io/zqb/` 仍保留可用
+- **更新机制与打卡脚本完全一致（全自动跟随）**：页面 HTML 打包在 `zqb-page.js` 里，`script-path` 仍指向 GitHub Pages——电脑端改完 push 后，手机在小火箭模块页**更新/刷新模块即可自动拉取新版页面**，全程无需重新粘贴任何脚本
+- **无代理时**：页面由本地脚本照常吐出；已加载过的打卡/选点脚本沿用小火箭本地缓存继续生效（脚本的自动更新需在代理在线时完成，恢复代理后刷新模块即拉新版）
+- **日常直连**：`proj-kq.ruioutech.com` 走 DIRECT 规则 + MITM 即可，页面/选点/打卡拦截全链路不需要任何机场节点
 
-### 步骤（一次性，期间代理开着即可）
+**前提**：`zqb-page.js` 由 [`index.html`](index.html) 经 `node build-zqb-page.js` 自动生成（本仓库已含成品，勿手工编辑）。电脑端改 `index.html` 后在 `小火箭` 目录执行 `node build-zqb-page.js` 重新生成，随仓库一起 push 即可。
 
-1. **取脚本内容**：Safari 依次打开三个 Pages 直链，全选复制（Pages 不可达时用 raw/jsDelivr 备用源，见部署第 3 步速查表，文件名换成 `zqb-page.js`）：
-   ```
-   https://cosalone.github.io/zqb/zqb.js
-   https://cosalone.github.io/zqb/zqb-settings.js
-   https://cosalone.github.io/zqb/zqb-page.js
-   ```
-2. **新建 3 个本地脚本**：小火箭 → 「脚本」→ 右上角 **+** → 类型选 **HTTP 请求** → 粘贴对应内容：
+### 附：完全离线替代（本地脚本，手动维护，日常不推荐）
+
+如希望手机端连脚本更新都不经代理（彻底不依赖 GitHub），可把 3 个脚本存为小火箭本地脚本——代价是**每次更新都要手动重贴**，所以仅作特殊场景备选：
+
+1. Safari 依次打开 `cosalone.github.io/zqb/` 下的 `zqb.js` / `zqb-settings.js` / `zqb-page.js`（备用源见部署第 3 步速查表），全选复制
+2. 小火箭 → 「脚本」→ **+** → 类型 HTTP 请求 → 粘贴对应内容：
 
    | 名称 | URL（正则匹配） | 需要Body | 粘贴内容 |
    |---|---|---|---|
@@ -232,23 +237,9 @@ https://proj-kq.ruioutech.com/zqb-settings/save?lon=经度&lat=纬度&loc=地点
    | 智勤选点 | `^https?:\/\/proj-kq\.ruioutech\.com\/zqb-settings\/save` | 关 | `zqb-settings.js` |
    | 智勤页面 | `^https?:\/\/proj-kq\.ruioutech\.com\/zqb-page` | 关 | `zqb-page.js` |
 
-3. **HTTPS 解密 hostname**：本地脚本不经过模块，`[MITM]` 的 `%APPEND%` 不生效——需在 设置 → HTTPS 解密 → hostname 列表里**手动添加** `proj-kq.ruioutech.com`（CA 证书安装与信任见部署第 6 步，不变）。
-4. **停用模块**：本地脚本与模块的拦截规则重叠，同时启用会重复拦截（重复通知/二次改写风险）。转本地方案后请在小火箭里停用或删除「智勤宝v2.5.1」模块；想切回模块分发，删掉 3 个本地脚本重新订阅模块即可，两者二选一。
-5. **打开选点页**：Safari 访问 **https://proj-kq.ruioutech.com/zqb-page**（代理关掉也能开），建议分享 → 添加到主屏幕。「二、日常使用」的所有操作、方式三直链、快捷指令照旧不变。
+3. HTTPS 解密 hostname 列表手动添加 `proj-kq.ruioutech.com`（本地脚本不走模块，`%APPEND%` 不生效）
+4. **停用模块**（本地脚本与模块拦截规则重叠，同时启用会重复拦截）；想切回模块自动更新，删掉本地脚本重新订阅模块即可，两者二选一
 
-### 日常代理规则
-
-直连模式下小火箭只需保证：VPN 开启 + `proj-kq.ruioutech.com` 走 DIRECT（或默认直连）+ HTTPS 解密开。其余网站该怎么配还怎么配，与本套脚本无关。
-
-### 页面更新维护
-
-电脑上修改 `index.html` 后，在 `小火箭` 目录执行：
-
-```
-node build-zqb-page.js
-```
-
-重新生成 `zqb-page.js`，上传仓库后把新内容重新粘贴进小火箭的「智勤页面」本地脚本覆盖旧版即可（`zqb-page.js` 是生成物，勿手工编辑）。
 
 ---
 
